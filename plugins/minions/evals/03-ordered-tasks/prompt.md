@@ -1,0 +1,1 @@
+I have three separate tasks for the Python service, in this order: first add the data model, second expose the API using that model, and third add the client integration using the API. File them as three tasks and make the second depend on the first and the third depend on the second. Ask for live repo and branch choices before filing.

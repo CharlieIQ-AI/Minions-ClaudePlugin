@@ -1,0 +1,29 @@
+schema_version: "1.1"
+name: plain-feature-request
+tags: [file-work, create-task]
+description: A prose request gathers live filing choices and creates one task.
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "I need a small cleanup feature in the Python service. Please help me file it, using the repository and branch choices that are actually available, and ask me whether auto-merge should be enabled. Keep the file request as prose rather than treating it as a finished specification."
+graders:
+  - name: live-repo-facts
+    type: tool_used
+    tool: mcp__minions__list_repos
+    min: 1
+  - name: creates-task
+    type: tool_used
+    tool: mcp__minions__create_task
+    min: 1
+  - name: no-feature-split
+    type: tool_used
+    tool: mcp__minions__create_feature
+    min: 0
+    max: 0
+  - name: prose-not-verbatim
+    type: regex
+    pattern: "verbatimSpec\\s*[:=]\\s*true"
+    target: mock_calls
+    match: not_contains

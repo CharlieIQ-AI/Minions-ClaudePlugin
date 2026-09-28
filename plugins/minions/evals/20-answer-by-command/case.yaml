@@ -1,0 +1,25 @@
+schema_version: "1.1"
+name: answer-by-command
+tags: [clear-blocked-work, authorization]
+description: A clarification answer uses the user's stated option.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Task DEMO-44 has an open clarification. Show me the question and its options. My stated answer is 30 days; answer it with that choice."
+graders:
+  - name: answers-clarification
+    type: tool_used
+    tool: mcp__minions__answer_clarification
+    min: 1
+  - name: names-choice
+    type: regex
+    pattern: "30 days"
+    flags: i
+    target: trace
+  - name: no-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0

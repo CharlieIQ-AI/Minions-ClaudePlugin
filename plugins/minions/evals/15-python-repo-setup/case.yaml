@@ -1,0 +1,40 @@
+schema_version: "1.1"
+name: python-repo-setup
+tags: [repository-setup, python]
+description: Setup guidance separates Python installation from build verification.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Set up guidance for the Python service so it can run pytest. Read its live setup facts, then explain the required stack label, a Startup Script that installs Python dependencies, the Build Script checks, and a MINIONS.md draft with guidance for every pipeline role. Do not put dependency installation in the Build Script."
+graders:
+  - name: reads-setup
+    type: tool_used
+    tool: mcp__minions__get_repo_setup
+    min: 1
+  - name: names-stack
+    type: regex
+    pattern: "stack label|python312"
+    flags: i
+    target: last_message
+  - name: names-startup
+    type: regex
+    pattern: "Startup Script"
+    target: last_message
+  - name: separates-build-install
+    type: regex
+    pattern: "Build Script[^\n]*(pip install|poetry install|npm install)"
+    flags: is
+    target: last_message
+    match: not_contains
+  - name: drafts-minions
+    type: regex
+    pattern: "MINIONS\\.md|Planner|Plan Reviewer|Builder|Test Author|Reviewer"
+    flags: i
+    target: last_message
+  - name: no-unlisted-destructive-action
+    type: tool_used
+    tool: mcp__minions__delete_task
+    min: 0
+    max: 0

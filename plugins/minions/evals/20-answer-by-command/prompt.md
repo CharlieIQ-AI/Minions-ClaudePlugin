@@ -1,0 +1,1 @@
+Task DEMO-44 has an open clarification. Show me the question and its options. My stated answer is 30 days; answer it with that choice.

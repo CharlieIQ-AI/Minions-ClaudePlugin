@@ -1,0 +1,1 @@
+Set up guidance for the Python service so it can run pytest. Read its live setup facts, then explain the required stack label, a Startup Script that installs Python dependencies, the Build Script checks, and a MINIONS.md draft with guidance for every pipeline role. Do not put dependency installation in the Build Script.

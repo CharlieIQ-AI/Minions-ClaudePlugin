@@ -1,0 +1,30 @@
+schema_version: "1.1"
+name: already-adopted-ticket
+tags: [adoption, safety]
+description: An already-adopted ticket points to its existing Minions task instead of being duplicated.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "The existing tracker item DEMO-4202 is the work I want. Check whether it is already in Minions and tell me where to find it."
+graders:
+  - name: previews-ticket
+    type: tool_used
+    tool: mcp__minions__preview_ticket
+    min: 1
+  - name: never-adopts
+    type: tool_used
+    tool: mcp__minions__adopt_ticket
+    min: 0
+    max: 0
+  - name: never-creates
+    type: tool_used
+    tool: mcp__minions__create_task
+    min: 0
+    max: 0
+  - name: points-to-existing-task
+    type: regex
+    target: last_message
+    pattern: "tasks\\/"
+    flags: i

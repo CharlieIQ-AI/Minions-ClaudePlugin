@@ -1,0 +1,30 @@
+schema_version: "1.1"
+name: coverage-em-dash
+tags: [file-work, spec-quality]
+description: A coverage line using an em dash is normalized to the required colon form.
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "File this ordinary request: add a cache for profile lookups. The specification must include a coverage declaration, and please make sure the line written as 'Failure paths — AC2' is corrected to the required 'Failure paths: AC2' form."
+graders:
+  - name: creates-task
+    type: tool_used
+    tool: mcp__minions__create_task
+    min: 1
+  - name: corrected-coverage-line
+    type: regex
+    pattern: "Failure paths:\\s*AC2"
+    flags: i
+    target: trace
+  - name: no-em-dash-coverage
+    type: regex
+    pattern: "Failure paths\\s*[—-]\\s*AC2"
+    target: mock_calls
+    match: not_contains
+  - name: no-unlisted-destructive-action
+    type: tool_used
+    tool: mcp__minions__delete_task
+    min: 0
+    max: 0

@@ -1,0 +1,1 @@
+The tracker already has the work item DEMO-42 for this request. Check what it is before doing anything, then, if it matches, adopt that existing ticket rather than creating another one.

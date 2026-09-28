@@ -1,0 +1,30 @@
+schema_version: "1.1"
+name: stale-plan-version
+tags: [features, plan-version, safety]
+description: A stale feature plan must be refreshed before another wave is added.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "The feature DEMO-48 changed after I read it. Add the next wave, but refuse to retry without a fresh get_feature and explain the current planVersion."
+graders:
+  - name: reads-feature
+    type: tool_used
+    tool: mcp__minions__get_feature
+    min: 1
+  - name: one-wave-attempt
+    type: tool_used
+    tool: mcp__minions__add_feature_wave
+    min: 0
+    max: 1
+  - name: no-task-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0
+  - name: stale-refusal
+    type: regex
+    pattern: "plan changed|planVersion|fresh get_feature"
+    flags: i
+    target: last_message

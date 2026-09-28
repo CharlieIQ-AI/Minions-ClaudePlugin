@@ -1,0 +1,21 @@
+schema_version: "1.1"
+name: fix-ci-decision
+tags: [clear-blocked-work, authorization]
+description: A waiting CI fix is approved only after showing its proposal.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Task DEMO-45 has a waiting CI fix. Show me the failing check and proposed fix from the blocker and run details. I explicitly approve it now; resolve the CI fix with action approve and report the result."
+graders:
+  - name: resolves-ci-fix
+    type: tool_used
+    tool: mcp__minions__resolve_ci_fix
+    input_match: '"action"\\s*:\\s*"approve"'
+    min: 1
+  - name: no-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0

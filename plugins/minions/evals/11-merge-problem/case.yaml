@@ -1,0 +1,29 @@
+schema_version: "1.1"
+name: merge-problem
+tags: [clear-blocked-work, merge-problem]
+description: A Merge Problem is explained from logs without retrying merge.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Explain why task DEMO-43 is in Merge Problem. Inspect its run details and logs, tell me what must be fixed, and do not call merge_task because the underlying cause has not been fixed."
+graders:
+  - name: reads-task
+    type: tool_used
+    tool: mcp__minions__get_task
+    min: 1
+  - name: reads-log
+    type: tool_used
+    tool: mcp__minions__get_job_log
+    min: 1
+  - name: no-merge-retry
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0
+  - name: explains-cause
+    type: regex
+    pattern: "protected|branch policy|underlying cause|fix"
+    flags: i
+    target: last_message

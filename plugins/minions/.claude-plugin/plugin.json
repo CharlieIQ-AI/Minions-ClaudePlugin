@@ -1,0 +1,11 @@
+{
+  "name": "minions",
+  "description": "Connect Claude Code to the Minions MCP server.",
+  "author": {
+    "name": "CharlieIQ"
+  },
+  "version": "0.6.3",
+  "experimental": {
+    "evals": "evals"
+  }
+}

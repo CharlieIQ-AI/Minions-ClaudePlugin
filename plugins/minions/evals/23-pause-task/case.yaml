@@ -1,0 +1,29 @@
+schema_version: "1.1"
+name: pause-task
+tags: [clear-blocked-work, authorization]
+description: An in-progress task is paused after explicit confirmation.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Inspect task DEMO-46. It is not paused. I explicitly approve pausing it now; pause the task and report the result."
+graders:
+  - name: reads-task
+    type: tool_used
+    tool: mcp__minions__get_task
+    min: 1
+  - name: pauses-task
+    type: tool_used
+    tool: mcp__minions__pause_task
+    min: 1
+  - name: no-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0
+  - name: no-delete
+    type: tool_used
+    tool: mcp__minions__delete_task
+    min: 0
+    max: 0

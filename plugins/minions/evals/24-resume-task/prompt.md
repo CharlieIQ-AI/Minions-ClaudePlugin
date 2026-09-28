@@ -1,0 +1,1 @@
+Inspect paused task DEMO-46. I explicitly approve resuming it now; resume the task and report the result.

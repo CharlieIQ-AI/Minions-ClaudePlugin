@@ -1,0 +1,29 @@
+schema_version: "1.1"
+name: ticket-done
+tags: [report-status, read-only]
+description: A done question reads status without changing the task.
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Is task DEMO-42 done? Check the current task status and report it. This is a read-only question: do not merge, restart, pause, delete, or otherwise change anything."
+graders:
+  - name: lists-own-tasks
+    type: tool_used
+    tool: mcp__minions__list_my_tasks
+    min: 1
+  - name: reads-task
+    type: tool_used
+    tool: mcp__minions__get_task
+    min: 1
+  - name: reports-status
+    type: regex
+    pattern: "done|status"
+    flags: i
+    target: last_message
+  - name: no-unlisted-destructive-action
+    type: tool_used
+    tool: mcp__minions__delete_task
+    min: 0
+    max: 0

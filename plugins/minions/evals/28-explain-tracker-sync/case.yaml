@@ -1,0 +1,25 @@
+schema_version: "1.1"
+name: explain-tracker-sync
+tags: [clear-blocked-work, read-only]
+description: A tracker-sync notice is explained without changing anything.
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Task DEMO-47 shows a 'Your tracker wasn't updated' notice. What does that mean and what should I do about it? Just explain; do not change anything."
+graders:
+  - name: reads-task
+    type: tool_used
+    tool: mcp__minions__get_task
+    min: 1
+  - name: no-dismiss
+    type: tool_used
+    tool: mcp__minions__dismiss_tracker_sync
+    min: 0
+    max: 0
+  - name: explains-tracker-sync
+    type: regex
+    pattern: "tracker|workflow|transition"
+    flags: i
+    target: last_message

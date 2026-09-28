@@ -1,0 +1,30 @@
+schema_version: "1.1"
+name: delete-task
+tags: [destructive]
+description: A task is deleted after the user names a reason and confirms.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Run /delete DEMO-999. I have already decided to delete it because the reason is Created by mistake. Confirm that reason back to me and proceed with the deletion."
+graders:
+  - name: reads-task
+    type: tool_used
+    tool: mcp__minions__get_task
+    min: 1
+  - name: deletes-task
+    type: tool_used
+    tool: mcp__minions__delete_task
+    min: 1
+    max: 1
+  - name: no-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0
+  - name: reports-reason
+    type: regex
+    pattern: "Created by mistake"
+    flags: i
+    target: last_message

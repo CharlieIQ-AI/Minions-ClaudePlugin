@@ -1,0 +1,43 @@
+schema_version: "1.1"
+name: ordered-tasks
+tags: [file-work, dependencies]
+description: Three tasks are filed in order and the dependent task carries a blocker.
+runs: 1
+execution:
+  max_turns: 12
+  timeout_seconds: 240
+  allowed_tools: [Skill]
+  prompt: "I have three separate tasks for the Python service, in this order: first add the data model, second expose the API using that model, and third add the client integration using the API. File them as three tasks and make the second depend on the first and the third depend on the second. Ask for live repo and branch choices before filing."
+graders:
+  - name: creates-three-tasks
+    type: tool_used
+    tool: mcp__minions__create_task
+    min: 3
+  - name: dependency-field-present
+    type: regex
+    pattern: "dependsOnJiraKey"
+    target: trace
+  - name: no-prose-only-dependency
+    type: regex
+    pattern: "dependsOnJiraKey\\s*[:=]\\s*null"
+    target: mock_calls
+    match: not_contains
+  - name: live-repo-facts
+    type: tool_used
+    tool: mcp__minions__list_repos
+    min: 1
+  - name: no-feature-split
+    type: tool_used
+    tool: mcp__minions__create_feature
+    min: 0
+    max: 0
+  - name: no-implicit-set-dependency
+    type: tool_used
+    tool: mcp__minions__set_dependency
+    min: 0
+    max: 0
+  - name: explains-order
+    type: regex
+    pattern: "depend|order|block"
+    flags: i
+    target: last_message

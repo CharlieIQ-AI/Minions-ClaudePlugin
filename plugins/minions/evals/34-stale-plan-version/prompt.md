@@ -1,0 +1,1 @@
+The feature DEMO-48 changed after I read it. Add the next wave, but do not retry `add_feature_wave` without a fresh `get_feature`. Explain the current planVersion if the request is refused.

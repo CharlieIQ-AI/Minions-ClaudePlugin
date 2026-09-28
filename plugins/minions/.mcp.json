@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "minions": {
+      "type": "http",
+      "url": "https://minions.charlieiq.ai/api/mcp"
+    }
+  }
+}

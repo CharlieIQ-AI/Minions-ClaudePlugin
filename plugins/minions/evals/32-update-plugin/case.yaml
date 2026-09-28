@@ -1,0 +1,30 @@
+schema_version: "1.1"
+name: update-plugin
+tags: [plugin-update, consent]
+description: A version notice is accepted and the plugin is updated.
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill, Bash]
+  prompt: 'Session context from the Minions plugin hook: "Minions plugin version check: installed 0.3.0, available 0.4.0. If the user asks to update the plugin or accepts this notice, run exactly: claude plugin update minions@minions — then tell them to run /reload-plugins or start a new session. Do not run it unasked." User: update the minions plugin'
+graders:
+  - name: runs-update
+    type: regex
+    pattern: "claude plugin update minions@minions"
+    target: trace
+  - name: mentions-reload
+    type: regex
+    pattern: "/reload-plugins"
+    target: last_message
+  - name: no-other-plugin-subcommand
+    type: regex
+    pattern: "claude plugin (install|uninstall|remove|disable|enable|list|validate|marketplace|eval)"
+    flags: i
+    target: trace
+    match: not_contains
+  - name: no-task-created
+    type: tool_used
+    tool: mcp__minions__create_task
+    min: 0
+    max: 0

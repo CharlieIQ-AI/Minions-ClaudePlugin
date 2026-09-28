@@ -1,0 +1,26 @@
+schema_version: "1.1"
+name: waiting-ci-fix
+tags: [clear-blocked-work, authorization]
+description: An explicitly approved waiting CI fix is resolved.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Task DEMO-45 has a CI fix waiting for my decision. I explicitly approve the proposed CI fix now. Resolve the waiting CI fix with action approve, and tell me what happened."
+graders:
+  - name: resolves-ci-fix
+    type: tool_used
+    tool: mcp__minions__resolve_ci_fix
+    input_match: '"action"\\s*:\\s*"approve"'
+    min: 1
+  - name: explains-result
+    type: regex
+    pattern: "approve|CI fix|resolved|queued"
+    flags: i
+    target: last_message
+  - name: no-manual-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0

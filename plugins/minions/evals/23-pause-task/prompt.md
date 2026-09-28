@@ -1,0 +1,1 @@
+Inspect task DEMO-46. It is not paused. I explicitly approve pausing it now; pause the task and report the result.

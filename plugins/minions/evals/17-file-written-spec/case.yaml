@@ -1,0 +1,30 @@
+schema_version: "1.1"
+name: file-written-spec
+tags: [file-work, verbatim-spec, spec-quality]
+description: A complete written specification passes pre-flight and is filed unchanged.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "File this complete specification exactly as written, after checking it against the written-spec pre-flight. Use the live repository facts and ask me to confirm any choices before filing.\n\n## Context\nThe service currently drops duplicate health events. Evidence:\n- Duplicate event ids appear in the event stream.\n- Consumers expect one event per id.\n\n## Goal\nDeduplicate health events by event id.\n\n## Acceptance criteria\n- AC1: Events with the same id are emitted once.\n- AC2: Events with different ids remain separate.\n\n## Coverage declaration\nFailure paths: AC1\nAuthorization: N/A — no authorization change\nEmpty & loading states: N/A — no user interface\n\n## Technical Notes\nAdd deduplication at the event boundary.\n\n## Implementation outline\n1. Track ids at the event boundary.\n2. Emit only the first event for each id.\n\n## Assumptions\nThe existing event id is stable.\n\n## Dependencies\nNone.\n\n## Blocks\nNone.\n\n## Out of Scope\nChanging event payloads.\n\n## Test Plan\nTest duplicate and distinct ids.\n\n## Out of Scope for Tests\nLoad testing.\n\nUse repo-python, Build from main, Merge into main, and enable auto-merge if the live settings allow it. Preserve this text as written."
+graders:
+  - name: creates-verbatim-task
+    type: tool_used
+    tool: mcp__minions__create_task
+    min: 1
+  - name: uses-verbatim-flag
+    type: tool_used
+    tool: mcp__minions__create_task
+    input_match: '"verbatimSpec"\\s*:\\s*true'
+    min: 1
+  - name: no-feature-split
+    type: tool_used
+    tool: mcp__minions__create_feature
+    min: 0
+    max: 0
+  - name: reports-preflight
+    type: regex
+    pattern: "preserved as written|without rewriting|pre-flight"
+    flags: i
+    target: last_message

@@ -1,0 +1,25 @@
+schema_version: "1.1"
+name: delete-feature-key
+tags: [destructive]
+description: A feature key is not deleted through the MCP task action.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Run /delete DEMO-998. This key is a feature with child tasks. Do not delete it through the MCP."
+graders:
+  - name: reads-task
+    type: tool_used
+    tool: mcp__minions__get_task
+    min: 1
+  - name: no-delete
+    type: tool_used
+    tool: mcp__minions__delete_task
+    min: 0
+    max: 0
+  - name: explains-next-step
+    type: regex
+    pattern: "web app|reason"
+    flags: i
+    target: last_message

@@ -1,0 +1,34 @@
+schema_version: "1.1"
+name: fleet-overview
+tags: [report-status, read-only]
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "How are the Minions runs looking for my team over the last day? Report it, but do not answer, approve, merge, pause, or change anything."
+graders:
+  - name: uses-overview
+    type: tool_used
+    tool: mcp__minions__get_pipeline_overview
+    min: 1
+  - name: no-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0
+  - name: no-answer
+    type: tool_used
+    tool: mcp__minions__answer_clarification
+    min: 0
+    max: 0
+  - name: no-ci-resolution
+    type: tool_used
+    tool: mcp__minions__resolve_ci_fix
+    min: 0
+    max: 0
+  - name: no-pause
+    type: tool_used
+    tool: mcp__minions__pause_task
+    min: 0
+    max: 0

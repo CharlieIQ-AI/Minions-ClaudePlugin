@@ -1,0 +1,48 @@
+schema_version: "1.1"
+name: why-failed-run
+tags: [diagnose-run, read-only]
+description: A failed run is explained from its activity, log, and comments.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Explain what happened on task DEMO-43. Read the task, its activity, the newest run log, and comments. Tell me the cause and exactly one next action. Keep this read-only and do not change the task."
+graders:
+  - name: reads-task
+    type: tool_used
+    tool: mcp__minions__get_task
+    min: 1
+  - name: reads-activity
+    type: tool_used
+    tool: mcp__minions__get_task_activity
+    min: 1
+  - name: reads-job-log
+    type: tool_used
+    tool: mcp__minions__get_job_log
+    min: 1
+  - name: no-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0
+  - name: no-answer
+    type: tool_used
+    tool: mcp__minions__answer_clarification
+    min: 0
+    max: 0
+  - name: no-ci-fix
+    type: tool_used
+    tool: mcp__minions__resolve_ci_fix
+    min: 0
+    max: 0
+  - name: no-pause
+    type: tool_used
+    tool: mcp__minions__pause_task
+    min: 0
+    max: 0
+  - name: reports-cause
+    type: regex
+    pattern: "protected|branch policy|next"
+    flags: i
+    target: last_message

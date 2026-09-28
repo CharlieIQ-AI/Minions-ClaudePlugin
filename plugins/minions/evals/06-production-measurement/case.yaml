@@ -1,0 +1,31 @@
+schema_version: "1.1"
+name: production-measurement
+tags: [file-work, spec-quality]
+description: A production measurement request is kept out of acceptance criteria.
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "File this request: add request tracing to the Python service. I would like production latency to be 20 percent lower after rollout, but that outcome is only measurable in production. Keep that measurement out of the acceptance criteria and put it in a suitable assumptions or follow-up section instead."
+graders:
+  - name: creates-task
+    type: tool_used
+    tool: mcp__minions__create_task
+    min: 1
+  - name: observable-criteria
+    type: regex
+    pattern: "production latency|20 percent|20%"
+    flags: i
+    target: mock_calls
+    match: not_contains
+  - name: identifies-measurement
+    type: regex
+    pattern: "production|follow-up|measurement|assumption"
+    flags: i
+    target: last_message
+  - name: no-unlisted-destructive-action
+    type: tool_used
+    tool: mcp__minions__delete_task
+    min: 0
+    max: 0

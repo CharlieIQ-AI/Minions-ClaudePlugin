@@ -1,0 +1,1 @@
+Help me file a small cleanup feature in the Python service. Use the repository and branch choices that are actually available, ask whether I want auto-merge, and keep my request as ordinary prose rather than a finished specification.

@@ -1,0 +1,1 @@
+File this request: add request tracing to the Python service. I would like production latency to be 20 percent lower after rollout, but that outcome is only measurable in production. Keep that measurement out of the acceptance criteria and put it in a suitable assumptions or follow-up section instead.

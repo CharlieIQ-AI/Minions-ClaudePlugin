@@ -1,0 +1,25 @@
+schema_version: "1.1"
+name: set-dependency
+tags: [clear-blocked-work, dependencies, authorization]
+description: One task is made to wait on another after confirmation.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Make DEMO-46 wait on DEMO-42. Confirm both tasks first. I explicitly approve setting this dependency: DEMO-46 is the waiting task and DEMO-42 is the task it waits on."
+graders:
+  - name: reads-both-tasks
+    type: tool_used
+    tool: mcp__minions__get_task
+    min: 1
+  - name: sets-dependency
+    type: tool_used
+    tool: mcp__minions__set_dependency
+    input_match: '"dependsOnJiraKey"\\s*:\\s*"DEMO-42"'
+    min: 1
+  - name: no-create
+    type: tool_used
+    tool: mcp__minions__create_task
+    min: 0
+    max: 0

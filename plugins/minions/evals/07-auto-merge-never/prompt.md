@@ -1,0 +1,1 @@
+I want to file a documentation fix in the protected service. Use the live repository settings. If its auto-merge policy is never, do not offer auto-merge as a choice, default, or implied option.

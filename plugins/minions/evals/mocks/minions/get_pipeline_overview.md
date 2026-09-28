@@ -1,0 +1,4 @@
+---
+expect: {}
+---
+{"scope":"org","window":{"hours":24,"from":"2026-09-20T12:00:00.000Z","to":"2026-09-21T12:00:00.000Z"},"generatedAt":"2026-09-21T12:00:00.000Z","tasksByStatus":{"In Progress":2,"Ready for Review":1},"runsInWindow":{"counts":{"builder":{"running":1,"success":2},"reviewer":{"failed":1}},"totalCostUsd":4.75,"medianDurationSeconds":{"builder":180,"reviewer":240}},"activeRuns":[{"ticket":"DEMO-42","role":"builder","startedAt":"2026-09-21T11:20:00.000Z","minutesRunning":40,"repo":"demo-repo"}],"recentFailures":[{"ticket":"DEMO-43","role":"reviewer","status":"failed","completedAt":"2026-09-21T10:45:00.000Z","errorSummary":"Build verification failed","jobId":123}],"queue":{"counts":{"merge":{"queued":1,"running":1}},"stuckRunning":[{"id":88,"script":"merge","ticket":"DEMO-44","minutesSinceClaim":25}]},"blockers":1,"blockedTickets":["DEMO-44"]}

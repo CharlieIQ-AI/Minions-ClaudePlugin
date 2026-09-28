@@ -1,0 +1,1 @@
+Task DEMO-45 has a waiting CI fix. Show me the failing check and proposed fix from the blocker and run details. I explicitly approve it now; resolve the CI fix with action approve and report the result.

@@ -1,0 +1,29 @@
+schema_version: "1.1"
+name: resume-task
+tags: [clear-blocked-work, authorization]
+description: A paused task is resumed after explicit confirmation.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Inspect paused task DEMO-46. I explicitly approve resuming it now; resume the task and report the result."
+graders:
+  - name: reads-task
+    type: tool_used
+    tool: mcp__minions__get_task
+    min: 1
+  - name: resumes-task
+    type: tool_used
+    tool: mcp__minions__resume_task
+    min: 1
+  - name: no-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0
+  - name: no-delete
+    type: tool_used
+    tool: mcp__minions__delete_task
+    min: 0
+    max: 0

@@ -1,0 +1,25 @@
+schema_version: "1.1"
+name: which-org
+tags: [organizations, read-only]
+description: Asking which organization is active is answered from list_orgs without switching.
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Which organization is this Minions connection working in, and which others could I use? Just tell me; do not switch anything."
+graders:
+  - name: reads-orgs
+    type: tool_used
+    tool: mcp__minions__list_orgs
+    min: 1
+  - name: no-switch
+    type: tool_used
+    tool: mcp__minions__switch_org
+    min: 0
+    max: 0
+  - name: no-task
+    type: tool_used
+    tool: mcp__minions__create_task
+    min: 0
+    max: 0

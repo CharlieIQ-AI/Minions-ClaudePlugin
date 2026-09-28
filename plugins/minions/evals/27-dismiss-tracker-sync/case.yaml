@@ -1,0 +1,25 @@
+schema_version: "1.1"
+name: dismiss-tracker-sync
+tags: [clear-blocked-work, authorization]
+description: A tracker-sync notice is dismissed after explicit confirmation.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Task DEMO-47 shows the 'Your tracker wasn't updated' notice (transition failed, HTTP 400). I know the tracker workflow is missing that transition and I have decided to dismiss the notice now; dismiss it and report the result."
+graders:
+  - name: dismisses-notice
+    type: tool_used
+    tool: mcp__minions__dismiss_tracker_sync
+    min: 1
+  - name: no-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0
+  - name: no-delete
+    type: tool_used
+    tool: mcp__minions__delete_task
+    min: 0
+    max: 0

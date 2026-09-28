@@ -1,0 +1,34 @@
+schema_version: "1.1"
+name: retrying-task
+tags: [report-status, recovery]
+description: A retrying run is explained as automatic recovery without manual intervention.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "The runs for task DEMO-43 keep retrying. Tell me what that means and what is happening next. Do not pause the task and do not manually restart or retry it while the system is recovering."
+graders:
+  - name: lists-own-tasks
+    type: tool_used
+    tool: mcp__minions__list_my_tasks
+    min: 1
+  - name: reads-activity
+    type: tool_used
+    tool: mcp__minions__get_task_activity
+    min: 1
+  - name: no-pause
+    type: tool_used
+    tool: mcp__minions__pause_task
+    min: 0
+    max: 0
+  - name: no-restart
+    type: tool_used
+    tool: mcp__minions__restart_task
+    min: 0
+    max: 0
+  - name: explains-recovery
+    type: regex
+    pattern: "recover|automatic|retry|do not manually"
+    flags: i
+    target: last_message

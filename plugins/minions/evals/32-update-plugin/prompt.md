@@ -1,0 +1,1 @@
+Session context from the Minions plugin hook: "Minions plugin version check: installed 0.3.0, available 0.4.0. If the user asks to update the plugin or accepts this notice, run exactly: claude plugin update minions@minions — then tell them to run /reload-plugins or start a new session. Do not run it unasked." User: update the minions plugin

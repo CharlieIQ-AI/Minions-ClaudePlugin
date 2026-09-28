@@ -1,0 +1,1 @@
+Is task DEMO-42 done? Check the current task status and report it. This is a read-only question: do not merge, restart, pause, delete, or otherwise change anything.

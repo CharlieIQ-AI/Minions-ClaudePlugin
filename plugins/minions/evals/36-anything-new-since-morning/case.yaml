@@ -1,0 +1,38 @@
+schema_version: "1.1"
+name: anything-new-since-morning
+tags: [report-status, read-only]
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Anything new on my tasks since this morning? Just tell me what changed; do not answer, approve, merge, pause, or change anything."
+graders:
+  - name: uses-list-changes
+    type: tool_used
+    tool: mcp__minions__list_changes
+    min: 1
+  - name: reads-returned-key
+    type: tool_used
+    tool: mcp__minions__get_task
+    input_match: 'DEMO-51'
+    min: 1
+  - name: changes-before-detail
+    type: tool_order
+    before: mcp__minions__list_changes
+    after: mcp__minions__get_task
+  - name: only-returned-keys
+    type: tool_used
+    tool: mcp__minions__get_task
+    min: 1
+    max: 1
+  - name: no-list-my-tasks
+    type: tool_used
+    tool: mcp__minions__list_my_tasks
+    min: 0
+    max: 0
+  - name: no-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0

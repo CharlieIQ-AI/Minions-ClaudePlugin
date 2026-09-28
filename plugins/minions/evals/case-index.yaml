@@ -1,0 +1,45 @@
+schema_version: "1.1"
+name: minions-developer-requests
+cases:
+  - 01-plain-feature-request
+  - 02-pasted-spec
+  - 03-ordered-tasks
+  - 04-existing-ticket
+  - 05-coverage-em-dash
+  - 06-production-measurement
+  - 07-auto-merge-never
+  - 08-feature-sized-request
+  - 09-attention-inbox
+  - 10-answer-clarification
+  - 11-merge-problem
+  - 12-waiting-ci-fix
+  - 13-ticket-done
+  - 14-retrying-task
+  - 15-python-repo-setup
+  - 16-delete-backlog-tasks
+  - 17-file-written-spec
+  - 18-why-failed-run
+  - 19-fix-ci-decision
+  - 20-answer-by-command
+  - 21-merge-ready-task
+  - 22-set-dependency
+  - 23-pause-task
+  - 24-resume-task
+  - 25-list-bugs
+  - 26-fleet-overview
+  - 27-dismiss-tracker-sync
+  - 28-explain-tracker-sync
+  - 29-pipeline-health
+  - 30-switch-org
+  - 31-which-org
+  - 32-ambiguous-ticket-key
+  - 32-delete-task
+  - 32-lost-create-response
+  - 32-update-plugin
+  - 33-already-adopted-ticket
+  - 33-delete-feature-key
+  - 34-stale-plan-version
+  - 35-merge-feature-epic
+  - 34-someones-tasks-in-repo
+  - 35-reassign-without-confirmation
+  - 36-anything-new-since-morning

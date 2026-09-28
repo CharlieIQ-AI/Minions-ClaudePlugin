@@ -1,0 +1,18 @@
+schema_version: "1.1"
+name: lost-create-response
+tags: [recovery, idempotency]
+description: Recover a create whose response was lost without issuing a duplicate create.
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "The previous create_task call for the requested task did not return a response. It was sent with clientRequestId lost-create-32. Recover the result safely and do not create a duplicate."
+graders:
+  - type: tool_used
+    tool: mcp__minions__get_submission
+    min: 1
+  - type: tool_used
+    tool: mcp__minions__create_task
+    min: 0
+    max: 0

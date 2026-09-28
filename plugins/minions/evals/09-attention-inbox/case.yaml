@@ -1,0 +1,30 @@
+schema_version: "1.1"
+name: attention-inbox
+tags: [clear-blocked-work, read-only]
+description: The attention request lists blockers and changes nothing.
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "What needs my attention right now? List the blocked or waiting work, but do not answer, approve, merge, pause, delete, or otherwise change anything."
+graders:
+  - name: lists-blockers
+    type: tool_used
+    tool: mcp__minions__list_blockers
+    min: 1
+  - name: no-answer
+    type: tool_used
+    tool: mcp__minions__answer_clarification
+    min: 0
+    max: 0
+  - name: no-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0
+  - name: no-delete
+    type: tool_used
+    tool: mcp__minions__delete_task
+    min: 0
+    max: 0

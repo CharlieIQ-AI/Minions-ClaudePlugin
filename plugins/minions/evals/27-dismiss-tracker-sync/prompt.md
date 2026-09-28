@@ -1,0 +1,1 @@
+Task DEMO-47 shows the 'Your tracker wasn't updated' notice (transition failed, HTTP 400). I know the tracker workflow is missing that transition and I have decided to dismiss the notice now; dismiss it and report the result.

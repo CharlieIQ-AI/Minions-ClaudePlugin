@@ -1,0 +1,34 @@
+schema_version: "1.1"
+name: switch-org
+tags: [organizations, authorization]
+description: A user in several organizations moves the connection to another one after explicit approval, and repositories are re-read afterwards.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "I need to work in my second organization now, not the one this connection is on. I explicitly approve switching this connection to it; switch and then tell me which repositories I can file against there. Do not create any task."
+graders:
+  - name: reads-orgs-first
+    type: tool_order
+    before: mcp__minions__list_orgs
+    after: mcp__minions__switch_org
+  - name: switches
+    type: tool_used
+    tool: mcp__minions__switch_org
+    min: 1
+    max: 1
+  - name: rereads-repos-after-switch
+    type: tool_order
+    before: mcp__minions__switch_org
+    after: mcp__minions__list_repos
+  - name: no-task
+    type: tool_used
+    tool: mcp__minions__create_task
+    min: 0
+    max: 0
+  - name: no-delete
+    type: tool_used
+    tool: mcp__minions__delete_task
+    min: 0
+    max: 0

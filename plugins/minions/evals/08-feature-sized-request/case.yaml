@@ -1,0 +1,25 @@
+schema_version: "1.1"
+name: feature-sized-request
+tags: [file-work, feature]
+description: A feature-sized request proposes an epic and explains its waves.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 240
+  allowed_tools: [Skill]
+  prompt: "I need a broad platform migration: introduce a new event schema, update every producer, update every consumer, provide compatibility for one release, and migrate the reporting jobs. This is larger than one task. Propose a feature with create_feature and explain a sensible wave breakdown before filing it."
+graders:
+  - name: proposes-feature
+    type: tool_used
+    tool: mcp__minions__create_feature
+    min: 1
+  - name: does-not-collapse-to-task
+    type: tool_used
+    tool: mcp__minions__create_task
+    min: 0
+    max: 0
+  - name: explains-waves
+    type: regex
+    pattern: "wave"
+    flags: i
+    target: last_message

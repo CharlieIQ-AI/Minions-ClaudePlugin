@@ -1,0 +1,25 @@
+schema_version: "1.1"
+name: answer-clarification
+tags: [clear-blocked-work, authorization]
+description: One named clarification choice is confirmed and answered.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "There is one clarification waiting on task DEMO-44: 'Which retention policy should we use?' The named choice I approve is '30 days'. Answer that clarification with my explicit choice."
+graders:
+  - name: answers-clarification
+    type: tool_used
+    tool: mcp__minions__answer_clarification
+    min: 1
+  - name: names-choice
+    type: regex
+    pattern: "30 days"
+    flags: i
+    target: trace
+  - name: no-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0

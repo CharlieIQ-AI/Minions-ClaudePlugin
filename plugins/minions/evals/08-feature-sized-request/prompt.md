@@ -1,0 +1,1 @@
+I need a broad platform migration: introduce a new event schema, update every producer, update every consumer, provide compatibility for one release, and migrate the reporting jobs. This is larger than one task. Propose a feature with create_feature and explain a sensible wave breakdown before filing it.

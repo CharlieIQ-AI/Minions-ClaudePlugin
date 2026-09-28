@@ -1,0 +1,29 @@
+schema_version: "1.1"
+name: auto-merge-never
+tags: [file-work, policy]
+description: A repository policy of never prevents offering auto-merge.
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "I want to file a documentation fix in the protected service. Use the live repository settings. If its auto-merge policy is never, do not offer auto-merge as a choice, default, or implied option."
+graders:
+  - name: reads-repos
+    type: tool_used
+    tool: mcp__minions__list_repos
+    min: 1
+  - name: no-auto-merge-offer
+    type: regex
+    pattern: '"autoMerge"\s*:\s*true'
+    target: mock_calls
+    match: not_contains
+  - name: no-task-before-choice
+    type: tool_order
+    before: mcp__minions__list_repos
+    after: mcp__minions__create_task
+  - name: no-unlisted-destructive-action
+    type: tool_used
+    tool: mcp__minions__delete_task
+    min: 0
+    max: 0

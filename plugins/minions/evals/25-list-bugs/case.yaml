@@ -1,0 +1,40 @@
+schema_version: "1.1"
+name: list-bugs
+tags: [report-status, read-only]
+description: Open bug reports are listed without changing work.
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "List open Minions bugs for me. Keep this read-only and do not merge, answer, approve, pause, or otherwise change anything."
+graders:
+  - name: lists-open-bugs
+    type: tool_used
+    tool: mcp__minions__list_open_bugs
+    min: 1
+  - name: no-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0
+  - name: no-answer
+    type: tool_used
+    tool: mcp__minions__answer_clarification
+    min: 0
+    max: 0
+  - name: no-ci-fix
+    type: tool_used
+    tool: mcp__minions__resolve_ci_fix
+    min: 0
+    max: 0
+  - name: no-pause
+    type: tool_used
+    tool: mcp__minions__pause_task
+    min: 0
+    max: 0
+  - name: reports-bugs
+    type: regex
+    pattern: "bug"
+    flags: i
+    target: last_message

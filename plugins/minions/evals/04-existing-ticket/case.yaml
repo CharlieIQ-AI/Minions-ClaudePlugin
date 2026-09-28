@@ -1,0 +1,28 @@
+schema_version: "1.1"
+name: existing-ticket
+tags: [file-work, adoption, safety]
+description: An existing tracker item is previewed and adopted instead of duplicated.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "The tracker already has the work item DEMO-42 for this request. Check what it is before doing anything, then, if it matches, adopt that existing ticket rather than creating another one."
+graders:
+  - name: previews-first
+    type: tool_used
+    tool: mcp__minions__preview_ticket
+    min: 1
+  - name: adopts-ticket
+    type: tool_used
+    tool: mcp__minions__adopt_ticket
+    min: 1
+  - name: preview-before-adopt
+    type: tool_order
+    before: mcp__minions__preview_ticket
+    after: mcp__minions__adopt_ticket
+  - name: never-duplicates
+    type: tool_used
+    tool: mcp__minions__create_task
+    min: 0
+    max: 0

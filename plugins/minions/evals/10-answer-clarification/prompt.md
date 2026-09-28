@@ -1,0 +1,1 @@
+There is one clarification waiting on task DEMO-44: 'Which retention policy should we use?' The named choice I approve is '30 days'. Answer that clarification with my explicit choice.

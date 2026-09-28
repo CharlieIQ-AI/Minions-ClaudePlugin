@@ -1,0 +1,30 @@
+schema_version: "1.1"
+name: pasted-spec
+tags: [file-work, verbatim-spec]
+description: An already written specification is passed unchanged.
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Paste this exact engineering specification into the task without rewriting it:\n\nContext: The service emits duplicate health events.\nGoal: Deduplicate health events by event id.\nAcceptance criteria:\n- Events with the same id are emitted once.\n- Events with different ids remain separate.\nTechnical Notes: Add the deduplication at the event boundary.\n\nDo not summarize or improve the text."
+graders:
+  - name: creates-task
+    type: tool_used
+    tool: mcp__minions__create_task
+    min: 1
+  - name: preserves-spec
+    type: tool_used
+    tool: mcp__minions__create_task
+    input_match: '"verbatimSpec"\\s*:\\s*true'
+    min: 1
+  - name: no-feature-split
+    type: tool_used
+    tool: mcp__minions__create_feature
+    min: 0
+    max: 0
+  - name: no-rewrite-claim
+    type: regex
+    pattern: "without rewriting|preserved as written"
+    flags: i
+    target: last_message
