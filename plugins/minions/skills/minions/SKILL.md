@@ -290,9 +290,13 @@ Keep installation and verification separate when explaining setup.
 whether CI auto-fix is enabled, what threshold is configured for asking for confirmation, and that
 an automatic fix must not be approved without the user's explicit decision. Do not assume a
 threshold from a default: repository settings override it.
-5. **MINIONS.md:** when drafting repository guidance, include a distinct section for each role:
-`Planner`, `Plan Reviewer`, `Builder`, `Test Author`, and `Reviewer`. Keep the guidance grounded in
-that repository's actual commands and conventions; do not copy connection instructions into it.
+5. **MINIONS.md:** when drafting repository guidance, put anything that applies to every agent
+under a `General` section, then add a distinct section per role only where the guidance differs:
+`Planner`, `Plan Reviewer`, `Builder`, `Test Author`, and `Reviewer`. `General` reaches every role,
+including one with no section of its own. Do not rely on text above the first heading instead: that
+preamble ends at the first unrecognised heading, and a document title is an unrecognised heading, so
+guidance placed there is discarded. Keep the guidance grounded in that repository's actual commands
+and conventions; do not copy connection instructions into it.
 
 Report missing setup facts and point the user to the web application for settings changes. This
 skill can explain and check setup, but it cannot edit repo settings.
