@@ -28,7 +28,7 @@ safe; any tool that changes work requires the user's decision immediately before
 This rule covers every slash command in `commands/`, including `/spec`, `/why`, `/fix-ci`,
 `/answer`, `/merge`, `/depends`, `/pause`, `/resume`, `/delete`, `/unblock`, and `/bugs`; call a mutating tool
 (`create_task`, `resolve_ci_fix`, `answer_clarification`, `merge_task`, `merge_feature`, `set_dependency`, `set_task_owner`,
-`pause_task`, `resume_task`, `delete_task`, `switch_org`, or `dismiss_tracker_sync`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
+`pause_task`, `resume_task`, `delete_task`, `switch_org`, `dismiss_tracker_sync`, or `sign_off_task`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
 
 On an error result, read `error.code` first and branch on it: `not_found` means say the task is not visible to this connection; `permission_denied` means say so and stop; `not_in_window`, `already_merged`, `stale_plan_version`, `ambiguous`, `in_progress`, and `idempotency_conflict` mean relay the message and follow its instruction; `partial_failure` means list `details.steps`; fall back to the message when `structuredContent` is absent.
 
@@ -167,6 +167,7 @@ and ask for the user's explicit decision before calling it:
 | A paused task should continue | `resume_task` |
 | One task must wait on another | `set_dependency` (key = the waiting task, dependsOnJiraKey = the task it waits on) |
 | Tracker mirror out of step (`tracker_sync`) | `dismiss_tracker_sync` — hides the notice only; the fix for the underlying error is the tracker's workflow configuration |
+| Acceptance criteria only a person can confirm (`signoff`) | `sign_off_task` — show each line of `signoffAcs` and ask the user to approve or deny. `decision: "approve"` only after they say they checked every one; `decision: "deny"` needs their reason, which sends the task back to Planning as its feedback. `merge_task` is refused until they decide |
 
 For a hand-back, read `handback.recommendedStatus` and `resumeStatuses` from `list_blockers`. Unless the user chooses another resume status, name that destination in the confirmation question (for example, "resume at Ready for Test, building on the human commits?") and pass it as `targetStatus` to `resolve_handback`; report the returned `status` and `statusSource` afterwards.
 
@@ -273,6 +274,27 @@ existing command or a web-app step). When no run failed, report the latest run t
 `retrying` or `incomplete` run is self-recovering: report it and do not re-dispatch, pause, or retry.
 If a read returns empty or an error, say so and stop; never guess a status, job id, or option label.
 
+## Register a repository
+
+Only when the repository is not yet in Minions. Never type a coordinate from memory - choose one
+from a live listing, because a mistyped coordinate registers cleanly and then fails when an agent
+tries to clone it.
+
+1. Call `list_code_connections` to see which code providers the organization has connected.
+2. Call `list_provider_repos` for the chosen provider with that provider's scope
+(`githubInstallationId` / `gitlabGroupPath` / `bitbucketWorkspace` / `adoProject`). Narrow with
+`query` when `truncated` is true rather than asking for a larger page. A row with `alreadyAdded`
+is already registered: report its `label` instead of offering to add it again.
+3. Read the result honestly. `connected: false` means connect the provider first. A non-null
+`error` means the list could not be vouched for - say so rather than reporting the repository as
+absent. For GitHub, `cache.fetchedAt` is when that list was last refreshed and `cache.neverFetched`
+means it has never been, so say when the listing may be stale.
+4. Confirm the chosen repository with the user, then call `add_repo` with the row's `identifier`
+as that provider's coordinate and its `defaultBranch`. Never substitute a guessed branch for a
+null `defaultBranch`; ask instead.
+5. Report that initial ingest has been queued and that the repository is not usable for work
+until it completes.
+
 ## Set up a repository
 
 Call the read-only `get_repo_setup` tool for the selected repo and use its live result. Do not
@@ -283,7 +305,9 @@ to a runner image is not dispatchable; do not promise that work will run until t
 the web app.
 2. **Startup Script:** non-JavaScript dependencies and tools belong in the repo's Startup Script.
 The built-in dependency installer handles JavaScript lockfiles; it is not a Python or other
-language package installer.
+language package installer. If a private dependency needs a credential, ask an organization
+admin to store it with the MCP `set_repo_secret` tool rather than putting it in the repository.
+
 3. **Build Script:** treat the Build Script as a list of checks to run, not as an installer.
 Keep installation and verification separate when explaining setup.
 4. **CI auto-fix:** read the live `auto_fix_ci` setting and `ci_fix_confirm_threshold`. Explain
