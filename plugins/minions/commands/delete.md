@@ -1,7 +1,7 @@
 ---
-description: Delete a Minions task
+description: Delete a Minions task or feature
 argument-hint: [ticket key]
 ---
-Use the Minions skill's Delete a task section for `$ARGUMENTS`.
+Use the Minions skill's Delete a task or feature section for `$ARGUMENTS`.
 If `$ARGUMENTS` is empty, ask for the ticket key.
 Take an action only after the user explicitly chooses it.

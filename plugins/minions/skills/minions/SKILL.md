@@ -26,11 +26,11 @@ These are user-controlled operations. Never answer a clarification, approve a CI
 pause, or delete anything without the user's explicit decision. Reading status and setup facts is
 safe; any tool that changes work requires the user's decision immediately before the action.
 This rule covers every slash command in `commands/`, including `/spec`, `/why`, `/fix-ci`,
-`/answer`, `/merge`, `/depends`, `/pause`, `/resume`, `/delete`, `/unblock`, and `/bugs`; call a mutating tool
+`/answer`, `/merge`, `/depends`, `/pause`, `/resume`, `/delete`, `/restore`, `/unblock`, and `/bugs`; call a mutating tool
 (`create_task`, `resolve_ci_fix`, `answer_clarification`, `merge_task`, `merge_feature`, `set_dependency`, `set_task_owner`,
-`pause_task`, `resume_task`, `delete_task`, `switch_org`, `dismiss_tracker_sync`, or `sign_off_task`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
+`pause_task`, `resume_task`, `delete_task`, `restore_task`, `delete_feature`, `restore_feature`, `switch_org`, `dismiss_tracker_sync`, or `sign_off_task`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
 
-On an error result, read `error.code` first and branch on it: `not_found` means say the task is not visible to this connection; `permission_denied` means say so and stop; `not_in_window`, `already_merged`, `stale_plan_version`, `ambiguous`, `in_progress`, and `idempotency_conflict` mean relay the message and follow its instruction; `partial_failure` means list `details.steps`; fall back to the message when `structuredContent` is absent.
+On an error result, read `error.code` first and branch on it: `not_found` means say the task is not visible to this connection; `permission_denied` means say so and stop; `not_in_window`, `already_merged`, `stale_plan_version`, `ambiguous`, `in_progress`, `idempotency_conflict`, and `already_removed` mean relay the message and follow its instruction; `partial_failure` means list `details.steps`; fall back to the message when `structuredContent` is absent.
 
 Use the live results returned by the MCP. Do not infer a repository, branch, policy, ticket state,
 blocker, or threshold from this document or from an earlier conversation.
@@ -57,15 +57,23 @@ organizations may ask to work in another one:
 Call `list_repos` **first**, before asking the user to choose filing options. Use its result as the
 source of truth:
 
-- Ask the user to choose a repo from the returned repositories.
-- After they choose, offer only branches in that repo's `branches` list, including its default
+- Ask the user to choose a repo from the returned repositories, or up to five repos for one
+  multi-repo task.
+- For each chosen repo, offer only branches in that repo's `branches` list, including its default
   branch when it is present. Ask separately for **Build from** (the fork point) and **Merge into**
   (the destination); "base branch" is ambiguous and must be clarified with the user.
+- For one repo, call `create_task` with `repoId`, `mergeIntoBranch`, and `buildFromBranch`. For
+  2–5 repos, pass `repos` instead, one entry per repo with its own `repoId`, `mergeIntoBranch`,
+  and optional `buildFromBranch`; the first entry is the primary repo. `repos` refuses fewer than
+  two entries and cannot be combined with `repoId` or the top-level branch fields.
+- Relay any returned `warnings` to the user. A multi-repo task builds on the primary repo's runner
+  image, so a warning names repos whose image differs; creation still succeeded.
 - Ask the user whether to enable auto-merge, using the repo's live auto-merge settings, and read
   the creation result's `resolved` values back to them rather than assuming the request won.
 - If `auto_merge_policy` is `never`, do not offer auto-merge at all. Do not present it as a
   choice, a default, or an implied option.
 - Respect `auto_merge_available` and any other capability fields returned for that repo.
+- Creation requires an assigned tracker board; `board` shows it. If `board` is null, ask the user to assign one before filing, or offer `trackerBoard: "none"` for an internal-only task on an Optional-mode repo.
 
 Do not write repository names, branch names, or organization names into a prompt or example.
 Render the values from `list_repos` at run time. If the requested repo or branch is not in the
@@ -75,7 +83,12 @@ result, ask the user to choose again rather than guessing.
 
 For a new task, collect the user's request and the choices above, then call `create_task` only
 after the user has made the required decisions. Generate a fresh `clientRequestId` for every
-`create_task`, `adopt_ticket`, and `create_feature` call. For an existing ticket, call
+`create_task`, `adopt_ticket`, and `create_feature` call. To add evidence after a task exists,
+call `attach_files` with inline base64 `files` or HTTPS `urls`; it accepts up to five files at
+10 MB each, the same document and image types as `create_task`, and turns ZIPs into design
+bundles. URLs must be public HTTPS endpoints and are fetched for at most 15 seconds. For an
+attachment failure, read the returned validation or not-found error and do not retry with a
+larger or unsafe input. For an existing ticket, call
 `preview_ticket` first, show the user what would be adopted, and read `eligibleForAdoption`; when it
 is false, relay `ineligibleReasons` verbatim and do not call `adopt_ticket`. If the result has
 `code: "ambiguous"`, ask the user for the ticket URL and call nothing else. Prefer the ticket URL
@@ -207,11 +220,11 @@ the task's current status and call nothing. If it is true, explain that the task
 with the user's instructions, obtain the user's explicit decision, and then call `request_changes`.
 `reviewCycleLimit` is optional when the user wants to raise the per-ticket review-cycle cap.
 
-## Delete a task
+## Delete a task or feature
 
 Call `get_task` for the key. If the item is a feature (`type` is `epic`, or the result shows child
-tasks), say `Features must be deleted from the web app, not through the MCP.` and call nothing.
-Otherwise, show the task's `key`, `title`, `status`, and `repo`, then present these valid reasons:
+tasks), use `delete_feature` with the epic key instead of `delete_task`; everything below applies to
+both. Show the item's `key`, `title`, `status`, and `repo`, then present these valid reasons:
 
 - Duplicate
 - Scope changed
@@ -219,11 +232,38 @@ Otherwise, show the task's `key`, `title`, `status`, and `repo`, then present th
 - Created by mistake
 - Superseded
 
-Ask which reason applies and whether to add an optional `note`. Call `delete_task` with `key`,
-`reason`, and the optional `note` only after the user has named a reason and explicitly confirmed.
-If `$ARGUMENTS` is empty, ask for the ticket key and call nothing.
+Ask which reason applies and whether to add an optional `note`. Then ask which mode the user wants:
 
-After a successful call, report the returned `steps`. If the tool errors with `could not be fully deleted. Failed steps: …`, repeat the failed steps verbatim and say the delete can be retried from the task page in the web app. If it says `You do not have permission to delete this task.`, report that refusal and do not retry with a different reason. Relay `Features must be deleted from the web app, not through the MCP.` verbatim rather than paraphrasing it.
+- `full` (default): close the pull request (the branch stays) and move the ticket to Removed.
+- `minions_only`: leave the pull request open and the ticket in its current status; Minions stops
+  working on it, removes the ai-pilot label, and comments on both.
+
+Call `delete_task` (or `delete_feature`) with `key`, `reason`, `mode`, and the optional `note` only
+after the user has named a reason and a mode and explicitly confirmed. If `$ARGUMENTS` is empty, ask
+for the ticket key and call nothing. Tasks that were waiting on the removed task are released.
+
+After a successful call, report the returned `steps`. On `partial_failure`, list `details.steps`
+verbatim and say that calling the same tool again retries only the failed steps. If it says
+`You do not have permission to delete this task.`, report that refusal and do not retry with a
+different reason. On `in_progress`, another request is already running the removal: wait and check
+again, do not call it twice.
+
+To retry a removal that did not finish, call `delete_task` (or `delete_feature`) again directly with
+the same key once the user asks. `get_task` does not show removed tasks, so do not look the task up
+first. A retry keeps the mode the item was removed with.
+
+## Restore a removed task or feature
+
+Call `restore_task` (or `restore_feature` for an epic key) only after the user explicitly asks for
+it. A full delete is reversed (the pull request is reopened if its branch still exists, and the
+ticket moves back to its status before removal); a `minions_only` removal gets its ai-pilot label
+back. Restoring a feature also restores the tasks removed with it; tasks removed separately stay
+removed, and a task whose feature is still removed cannot be restored on its own (restore the
+feature). Restored work comes back paused: tell the user to resume it with `resume_task` when
+ready. The exception is a task whose pull request was merged after removal: it comes back as Done,
+with nothing to resume. Tasks released by the removal are not made to wait on it again. On
+`partial_failure`, list `details.steps` and say that calling the tool again retries them. On
+`in_progress`, another request is already running it: wait, do not call it twice.
 
 ## Features
 

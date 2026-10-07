@@ -8,4 +8,4 @@ list the connected providers, list that provider's repositories, let the user ch
 register it. Never type a repository coordinate from memory.
 Use `$ARGUMENTS` as the repo when it is present; otherwise use the repository in the current session.
 Offer a MINIONS.md draft for review and explain what it would change.
-Do not write repository files or settings until the user explicitly confirms the specific changes.
+Do not write repository files or settings until the user explicitly confirms the specific changes. Creation requires the repo to have an assigned tracker board; `list_repos` shows it as `board`. If it is null, ask the user to assign one (or, on an Optional-mode repo, offer an internal-only task with `trackerBoard: "none"`) before filing.

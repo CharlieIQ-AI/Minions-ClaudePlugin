@@ -19,7 +19,8 @@ setting up a repository), plus a SessionStart version-check hook in `hooks/hooks
 - `/depends` — Make one Minions task wait on another
 - `/pause` — Pause a Minions task
 - `/resume` — Resume a paused Minions task
-- `/delete` — Delete a Minions task
+- `/delete` — Delete a Minions task or feature
+- `/restore` — Restore a removed Minions task or feature
 - `/bugs` — List open Minions bugs
 - `/org` — Show or switch the organization this Minions connection works in.
 
