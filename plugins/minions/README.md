@@ -1,5 +1,11 @@
 # Minions Claude Code plugin
 
+## Secret references
+
+When setting a repository secret, provide a local reference rather than pasting the credential into chat. Use `env:NAME` for an environment variable, `file:PATH` for a UTF-8 file, or `keychain:SERVICE/ACCOUNT` for an operating-system keychain entry. macOS uses Keychain Access, Linux uses Secret Service (`secret-tool`), and Windows uses Credential Manager, where the generic credential's target name is the literal `SERVICE/ACCOUNT` (for example `cmdkey /generic:npm/ci /user:ci /pass`). The plugin resolves and stages the value locally, then asks for confirmation before writing it to Minions.
+
+Never put a credential in a prompt or transcript.
+
 ## What this plugin installs
 
 The plugin installs a `minions` MCP server connection for Claude Code, the `minions` skill

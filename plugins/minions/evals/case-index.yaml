@@ -43,3 +43,4 @@ cases:
   - 34-someones-tasks-in-repo
   - 35-reassign-without-confirmation
   - 36-anything-new-since-morning
+  - 37-repo-secret-reference

@@ -338,15 +338,16 @@ until it completes.
 ## Set up a repository
 
 Call the read-only `get_repo_setup` tool for the selected repo and use its live result. Do not
-edit repository settings from this skill. Check each of the following:
+write repository settings until the user explicitly confirms the specific changes. After confirmation,
+walk `add_repo` → `set_repo_settings` (stack label first) → `set_repo_branches` → `set_repo_scripts`
+(MIN-2958) → `set_repo_secret` → `get_repo_setup` to confirm `dispatchable`. Check each of the following:
 
 1. **Stack label gate:** `stack_label_has_image` must be true. A repo without a stack label mapped
 to a runner image is not dispatchable; do not promise that work will run until this is fixed in
 the web app.
 2. **Startup Script:** non-JavaScript dependencies and tools belong in the repo's Startup Script.
 The built-in dependency installer handles JavaScript lockfiles; it is not a Python or other
-language package installer. If a private dependency needs a credential, ask an organization
-admin to store it with the MCP `set_repo_secret` tool rather than putting it in the repository.
+language package installer. If a private dependency needs a credential, ask an organization admin where the credential lives (an environment variable, file, or OS keychain entry) and pass that reference (`env:NAME`, `file:PATH` or `keychain:SERVICE/ACCOUNT`) as the value of `set_repo_secret`; the Minions Claude Code plugin resolves it locally. Never ask the user to paste a credential into chat or put it in the repository.
 
 3. **Build Script:** treat the Build Script as a list of checks to run, not as an installer.
 Keep installation and verification separate when explaining setup.
