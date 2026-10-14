@@ -1,4 +1,4 @@
-"""Resolve and stage Claude Code repository-secret references."""
+"""Resolve and stage Claude Code repository- and organization-secret references."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ import sys
 from pathlib import Path
 
 DEFAULT_ENDPOINT = "https://minions.charlieiq.ai"
-TOOL_SUFFIX = "__set_repo_secret"
+REPO_TOOL_SUFFIX = "__set_repo_secret"
+ORG_TOOL_SUFFIX = "__set_org_secret"
 PLUGIN_SERVER_PREFIX = "plugin_minions_"
 
 # Importing the sibling module must not leave bytecode in the user's plugin directory.
@@ -105,9 +106,9 @@ def decode_credential_blob(raw: bytes) -> str:
         raise ValueError("keychain value is neither UTF-8 nor UTF-16") from error
 
 
-def staging_endpoint(plugin_root: str, tool_name: str, cwd: object) -> str:
+def staging_endpoint(plugin_root: str, tool_name: str, cwd: object, suffix: str) -> str:
     """Name the server the MCP call goes to, since only that server can redeem the handle."""
-    server = tool_name[len("mcp__"):-len(TOOL_SUFFIX)]
+    server = tool_name[len("mcp__"):-len(suffix)]
     plugin_first = server.startswith(PLUGIN_SERVER_PREFIX)
     if plugin_first:
         server = server[len(PLUGIN_SERVER_PREFIX):]
@@ -147,6 +148,18 @@ def stage(endpoint: str, body: dict) -> str:
     return handle
 
 
+def org_reach(tool_input: dict) -> str:
+    """Which repositories an org secret will reach, as the confirmation prompt says it."""
+    scope = tool_input.get("scope")
+    if scope == "all":
+        return "all repositories"
+    if scope == "selected":
+        labels = tool_input.get("repoLabels")
+        count = len(set(labels)) if isinstance(labels, list) else 0
+        return "1 repository" if count == 1 else f"{count} repositories"
+    return "its current repositories"
+
+
 def deny(reason: str) -> None:
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
 
@@ -158,27 +171,37 @@ def main(plugin_root: str) -> int:
         return 0
     tool_name = payload.get("tool_name", payload.get("toolName", ""))
     tool_input = payload.get("tool_input", payload.get("toolInput", {}))
-    if not isinstance(tool_name, str) or not isinstance(tool_input, dict) or not tool_name.startswith("mcp__") or not tool_name.endswith(TOOL_SUFFIX) or "minions" not in tool_name:
+    if not isinstance(tool_name, str) or not isinstance(tool_input, dict) or not tool_name.startswith("mcp__") or "minions" not in tool_name:
         return 0
+    suffix = next((s for s in (REPO_TOOL_SUFFIX, ORG_TOOL_SUFFIX) if tool_name.endswith(s)), None)
+    if suffix is None:
+        return 0
+    org = suffix == ORG_TOOL_SUFFIX
     repo_label = tool_input.get("repoLabel")
     kind = tool_input.get("kind")
     name = tool_input.get("name")
-    if not isinstance(repo_label, str) or not isinstance(kind, str) or not isinstance(name, str):
-        deny("Could not resolve the secret reference: repoLabel, kind, and name are required")
+    if not isinstance(kind, str) or not isinstance(name, str) or (not org and not isinstance(repo_label, str)):
+        deny(f"Could not resolve the secret reference: {'kind and name are' if org else 'repoLabel, kind, and name are'} required")
         return 0
     reference = tool_input.get("value")
     if not isinstance(reference, str) or not (reference.startswith(("env:", "file:", "keychain:"))):
         return 0
+    # An org drop names no repository, and only set_org_secret can redeem it; a repo drop keeps
+    # the body every earlier plugin version sent.
+    body = {"target": "org", "kind": kind, "name": name} if org else {"repoLabel": repo_label, "kind": kind, "name": name}
     try:
         value = resolve(reference)
-        endpoint = staging_endpoint(plugin_root, tool_name, payload.get("cwd"))
-        handle = stage(endpoint, {"repoLabel": repo_label, "kind": kind, "name": name, "value": value})
+        endpoint = staging_endpoint(plugin_root, tool_name, payload.get("cwd"), suffix)
+        handle = stage(endpoint, {**body, "value": value})
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         deny(f"Could not resolve {reference}: {error}")
         return 0
     # The prompt shows only the staged handle, so the reason is what tells the user which
     # local secret they are about to store, and where.
-    reason = f"Minions: store {reference} as {kind} secret {name} on {repo_label} ({endpoint})"
+    if org:
+        reason = f"Minions: store {reference} as {kind} org secret {name} ({org_reach(tool_input)}) at {endpoint}"
+    else:
+        reason = f"Minions: store {reference} as {kind} secret {name} on {repo_label} ({endpoint})"
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask", "permissionDecisionReason": reason, "updatedInput": {**tool_input, "value": f"staged:{handle}"}}}))
     return 0
 

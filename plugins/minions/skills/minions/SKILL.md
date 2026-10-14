@@ -27,7 +27,7 @@ pause, or delete anything without the user's explicit decision. Reading status a
 safe; any tool that changes work requires the user's decision immediately before the action.
 This rule covers every slash command in `commands/`, including `/spec`, `/why`, `/fix-ci`,
 `/answer`, `/merge`, `/depends`, `/pause`, `/resume`, `/delete`, `/restore`, `/unblock`, and `/bugs`; call a mutating tool
-(`create_task`, `resolve_ci_fix`, `answer_clarification`, `merge_task`, `merge_feature`, `set_dependency`, `set_task_owner`,
+(`create_task`, `resolve_ci_fix`, `retry_pr_responder`, `answer_clarification`, `merge_task`, `merge_feature`, `set_dependency`, `set_task_owner`,
 `pause_task`, `resume_task`, `delete_task`, `restore_task`, `delete_feature`, `restore_feature`, `switch_org`, `dismiss_tracker_sync`, or `sign_off_task`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
 
 On an error result, read `error.code` first and branch on it: `not_found` means say the task is not visible to this connection; `permission_denied` means say so and stop; `not_in_window`, `already_merged`, `stale_plan_version`, `ambiguous`, `in_progress`, `idempotency_conflict`, and `already_removed` mean relay the message and follow its instruction; `partial_failure` means list `details.steps`; fall back to the message when `structuredContent` is absent.
@@ -49,6 +49,7 @@ organizations may ask to work in another one:
   `list_orgs` returned. It applies from the next call: call `list_repos` again afterwards rather
   than reusing an earlier result. Never switch to guess where a repository might live.
 - If the organization is not in `list_orgs`, say so; membership is managed in the web application.
+- An org admin sees and manages every team with `list_teams`, `add_team_member`, and `remove_team_member`. A team lead sees only the teams they lead in `list_teams`, may add or remove members of those teams, and may use `invite_user` to invite a `user` onto one by passing its id as `teamId`. Any other team operation is managed in the web application.
 
 ## File work
 
@@ -73,7 +74,7 @@ source of truth:
 - If `auto_merge_policy` is `never`, do not offer auto-merge at all. Do not present it as a
   choice, a default, or an implied option.
 - Respect `auto_merge_available` and any other capability fields returned for that repo.
-- Creation requires an assigned tracker board; `board` shows it. If `board` is null, ask the user to assign one before filing, or offer `trackerBoard: "none"` for an internal-only task on an Optional-mode repo.
+- Creation requires an assigned tracker board; `board` shows it. If `board` is null, ask the user to assign one before filing (with `set_repo_board`, using a board id from `list_tracker_boards`), or offer `trackerBoard: "none"` for an internal-only task on an Optional-mode repo.
 
 Do not write repository names, branch names, or organization names into a prompt or example.
 Render the values from `list_repos` at run time. If the requested repo or branch is not in the
@@ -171,6 +172,9 @@ and ask for the user's explicit decision before calling it:
 | --- | --- |
 | Clarification question | `answer_clarification` |
 | CI-fix decision | `resolve_ci_fix` |
+| CI auto-fix stuck (hit its attempt cap) | `resolve_ci_fix` with `action: retry` — resets the counters and re-runs CI on the code host; on a feature it also sets auto-merge back on |
+| PR review needs you (`pr_response`, the PR responder hit its attempt cap) | `retry_pr_responder` — resets the attempt count; the watcher queues the responder on its next check, within about 10 minutes, while the task is in review (`inReview: false` means it resumes when the task is back in review). A paused task keeps the reset and runs once resumed. Replying on the pull request also restarts it |
+| Provider-reported failing CI (`ci_failed`) | Fix or rerun the pull-request checks; no MCP action automatically changes them |
 | Hand-back to the requester | `resolve_handback` |
 | Proposed feature split that should remain one task | `keep_single_task` |
 | Merge Problem | `merge_task`, but only after the underlying cause is fixed |
@@ -185,7 +189,10 @@ and ask for the user's explicit decision before calling it:
 For a hand-back, read `handback.recommendedStatus` and `resumeStatuses` from `list_blockers`. Unless the user chooses another resume status, name that destination in the confirmation question (for example, "resume at Ready for Test, building on the human commits?") and pass it as `targetStatus` to `resolve_handback`; report the returned `status` and `statusSource` afterwards.
 
 A Merge Problem is not solved by repeatedly calling `merge_task`: inspect the cause, have it fixed,
-then merge. For parked states not represented by one of those actions, use the web application;
+then merge. A `ci_failed` blocker means the provider's live pull-request checks are failing: report
+its `get_task.ci` check names, commit, and run URL, then direct the user to fix or rerun those checks.
+It is visible even when CI auto-fix is disabled, and `resolve_ci_fix` does not apply
+unless the blocker is specifically `ci_confirm` or a CI auto-fix stuck blocker (`action: retry`). For parked states not represented by one of those actions, use the web application;
 the remaining resolution steps are web-app actions, not substitute MCP calls. Do not call an action
 just to discover what it would do when the user has not decided.
 
@@ -197,8 +204,18 @@ just to discover what it would do when the user has not decided.
 - `/answer` — show the ticket's open question(s) and options from `list_blockers` (type
   `clarification`, carrying `storyId` and `clarificationId`), then call `answer_clarification` only
   with the user's stated answer.
+
+### Review a triage verdict
+
+When `get_task` returns a non-null `triage` object, present its classification, confidence, summary,
+evidence, related keys, draft reproduction, and missing information. For a bug report awaiting review,
+explain the two clarification options exactly as returned by the task: `Plan it as a bug` or
+`Close — expected behavior`. Ask the user which option they choose before calling
+`answer_clarification`; if they choose to provide more information, pass that text as the answer.
+After three triage runs, only the two named options can be accepted.
 - `/merge` — call `get_task` first; at `Merge Problem`, refuse `merge_task` until the user confirms
-  the cause is fixed; otherwise call it only after the user's explicit decision.
+  the cause is fixed. When `blocked.type` is `ci_failed`, name the reported checks and refuse the
+  merge until the user confirms they are green; otherwise call it only after the user's explicit decision.
 - `/depends` — parse `<A> on <B>` (two ticket keys separated by the word `on`); on anything else
   print a usage line and call no tool. Otherwise call `get_task` for both, then `set_dependency` with
   `key: A` and `dependsOnJiraKey: B` after the user's decision.
@@ -231,6 +248,7 @@ both. Show the item's `key`, `title`, `status`, and `repo`, then present these v
 - Agent could not complete
 - Created by mistake
 - Superseded
+- Expected behavior
 
 Ask which reason applies and whether to add an optional `note`. Then ask which mode the user wants:
 
@@ -291,7 +309,7 @@ Call `get_task` and read `actions.setOwner`; if `allowed` is false, report the `
 
 Status reporting is read-only. Use the narrowest read needed:
 
-- Use `get_task` for the current task state and summary. Read `paused`, `owner`, `actions`, and `blocked` from its result rather than inferring them from `status`; report a paused task as paused first and never as simply done or in progress. When `blocked.ciFix` is present, report its failing checks, commit, count versus threshold, run URL, and the Approve auto-fix / Leave as-is choice. Include `urls.minions` whenever you report the task. Report an unavailable action with its `reason` verbatim instead of attempting it, and request `includeBuildPlan` only when the user asks about the plan.
+- Use `get_task` for the current task state and summary. Read `paused`, `owner`, `actions`, and `blocked` from its result rather than inferring them from `status`; report a paused task as paused first and never as simply done or in progress. When `get_task.ci` is failing or pending, report its failing checks, commit, and run URL and say the code host blocks the merge until CI passes; when `blocked.type` is `ci_failed`, report that blocker too. Do not imply that auto-fix is enabled. When `blocked.ciFix` is present, report its failing checks, commit, count versus threshold, run URL, and the Approve auto-fix / Leave as-is choice. Include `urls.minions` whenever you report the task. Report an unavailable action with its `reason` verbatim instead of attempting it, and request `includeBuildPlan` only when the user asks about the plan.
 - Use `list_my_tasks` row `url` when reporting a task from that list.
 - Use `get_task_activity` for the lifecycle and action history.
 - Use `get_job_log` **or** `get_task_comments` only when a run failed and its details are needed.
@@ -307,7 +325,7 @@ For fleet-level questions — "how are the runs looking", "what is running", "wh
 ## Diagnose a run
 
 This flow is read-only. Read in this order: `get_task`, then `get_task_activity`, then `get_job_log`
-for the newest entry in `jobs[]` (use that entry's `id` as `jobId`), and then `get_task_comments`. Read `paused`, `owner`, `actions`, and `blocked` from `get_task` rather than inferring them from `status`; report a paused task as paused first and never as simply done or in progress. When `blocked.ciFix` is present, report its failing checks, commit, count versus threshold, run URL, and the Approve auto-fix / Leave as-is choice. Include `urls.minions` in the report. Report an unavailable action with its `reason` verbatim instead of attempting it, and request `includeBuildPlan` only when the user asks about the plan.
+for the newest entry in `jobs[]` (use that entry's `id` as `jobId`), and then `get_task_comments`. Read `paused`, `owner`, `actions`, and `blocked` from `get_task` rather than inferring them from `status`; report a paused task as paused first and never as simply done or in progress. When `get_task.ci` is failing or pending, report its failing checks, commit, and run URL and say the code host blocks the merge until CI passes; when `blocked.type` is `ci_failed`, report that blocker too. Do not imply that auto-fix is enabled. When `blocked.ciFix` is present, report its failing checks, commit, count versus threshold, run URL, and the Approve auto-fix / Leave as-is choice. Include `urls.minions` in the report. Report an unavailable action with its `reason` verbatim instead of attempting it, and request `includeBuildPlan` only when the user asks about the plan.
 Report the run's agent role, outcome/status, recorded `errorSummary`, the agent's own verification
 lines quoted from its `[<role>-bot]` comment, and exactly one next action the user can take (an
 existing command or a web-app step). When no run failed, report the latest run the same way. A
@@ -339,7 +357,7 @@ until it completes.
 
 Call the read-only `get_repo_setup` tool for the selected repo and use its live result. Do not
 write repository settings until the user explicitly confirms the specific changes. After confirmation,
-walk `add_repo` → `set_repo_settings` (stack label first) → `set_repo_branches` → `set_repo_scripts`
+walk `add_repo` → `set_repo_settings` (stack label first, from `list_stack_labels`) → `set_repo_branches` → `set_repo_scripts`
 (MIN-2958) → `set_repo_secret` → `get_repo_setup` to confirm `dispatchable`. Check each of the following:
 
 1. **Stack label gate:** `stack_label_has_image` must be true. A repo without a stack label mapped
@@ -348,10 +366,13 @@ the web app.
 2. **Startup Script:** non-JavaScript dependencies and tools belong in the repo's Startup Script.
 The built-in dependency installer handles JavaScript lockfiles; it is not a Python or other
 language package installer. If a private dependency needs a credential, ask an organization admin where the credential lives (an environment variable, file, or OS keychain entry) and pass that reference (`env:NAME`, `file:PATH` or `keychain:SERVICE/ACCOUNT`) as the value of `set_repo_secret`; the Minions Claude Code plugin resolves it locally. Never ask the user to paste a credential into chat or put it in the repository.
+Before storing it, ask whether the same credential is used by other repositories in the organization. If it is, store it once with `set_org_secret` (the same reference rules) with `scope: "all"`, or `scope: "selected"` and the `repoLabels` it serves, rather than once per repository; check `list_org_secrets` first, since an existing org secret may already cover it. A repository's own secret with the same kind and name overrides the org one for that repository.
 
 3. **Build Script:** treat the Build Script as a list of checks to run, not as an installer.
 Keep installation and verification separate when explaining setup.
-4. **CI auto-fix:** read the live `auto_fix_ci` setting and `ci_fix_confirm_threshold`. Explain
+4. **Live environment:** when the organization feature is enabled and a Docker host is registered, use `set_repo_settings.liveEnvironment` to choose whether tasks start the repository's compose file, its services, and its host. `get_repo_setup` reports the saved live-environment settings.
+
+5. **CI auto-fix:** read the live `auto_fix_ci` setting and `ci_fix_confirm_threshold`. Explain
 whether CI auto-fix is enabled, what threshold is configured for asking for confirmation, and that
 an automatic fix must not be approved without the user's explicit decision. Do not assume a
 threshold from a default: repository settings override it.

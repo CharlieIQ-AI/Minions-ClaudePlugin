@@ -28,3 +28,8 @@ graders:
     tool: mcp__minions__delete_task
     min: 0
     max: 0
+  - name: no-pr-responder-retry
+    type: tool_used
+    tool: mcp__minions__retry_pr_responder
+    min: 0
+    max: 0
