@@ -144,6 +144,37 @@ hiding decisions in prose, identify blocks separately from dependencies, and sta
 scope. If a required fact is unknown and changes the implementation, ask the user before filing
 rather than inventing it.
 
+## Investigate before filing
+
+Research is an open-ended, code-aware investigation of a repository: it reads the real code and
+answers with `file:line` citations. It is READ-ONLY — it never changes anything. Use it when the
+user wants to understand how something works, what is and is not covered, or whether a behaviour
+is a bug, and especially when they have no access to the code themselves.
+
+- `start_research` opens a thread. Pass the question and the `repoLabels` to investigate (from
+  `list_repos`). `ask_research` adds a follow-up or redirects it; the whole thread is carried into
+  each answer.
+- **Answers are not instant and this is normal.** Both tools return as soon as the question is
+  recorded, with `state: "running"`. Poll `get_research_thread` until `state` is `"idle"` and a new
+  assistant message is present. A code-aware turn commonly takes 20-150 seconds, longer on the
+  first question about a repository. Never report a running turn as a failure or a hang; tell the
+  user it is still working and keep polling.
+- `state` is `"abandoned"` when a turn was started and never finished — ask again. It is
+  `"failed"` when the last turn errored; `error` says why, and asking again retries.
+- `list_research_threads` shows the organization's investigations and the tickets each produced.
+- One turn at a time per thread: `ask_research` returns `in_progress` if one is already running.
+
+### Turning research into work
+
+When the user is ready to act on what was found:
+
+1. `summarize_research` distils the thread into its conclusions, preserving every `file:line`
+   citation.
+2. File the task as usual (`create_task`), using that summary as the Context so the pipeline
+   inherits the evidence instead of a retelling.
+3. `link_research_ticket` records the ticket against the thread, so the investigation behind the
+   work stays findable.
+
 ## File a written spec
 
 - If the argument is empty, ask for the complete spec text or a file path and stop.
