@@ -4,6 +4,5 @@
   "submit_design_handoff": "Design handoffs are available through the dedicated design workflow.",
   "start_task": "Starting tasks is not part of the documented skill workflow.",
   "minions_guide": "The server supplies this guide automatically during connection setup.",
-  "list_board_fields": "Board field discovery is only needed for specialized tracker configuration.",
   "list_sprints": "Sprint selection is covered by live repository choices when needed."
 }

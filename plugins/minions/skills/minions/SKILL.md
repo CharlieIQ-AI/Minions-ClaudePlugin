@@ -74,6 +74,13 @@ source of truth:
 - If `auto_merge_policy` is `never`, do not offer auto-merge at all. Do not present it as a
   choice, a default, or an implied option.
 - Respect `auto_merge_available` and any other capability fields returned for that repo.
+- Call `list_board_fields` for the chosen repo (the primary repo of a multi-repo task) before
+  filing. When it returns fields, ask the user to choose a value for every `required` field from
+  its `options`, offering its `defaults` when it has them, and list the other fields with their
+  defaults so the user can change any of them. Pass the answers as `customFields`, keyed by field
+  name. Never pick a required value on the user's behalf. When `stale` is true, say the options may
+  be out of date. After creating, read `resolved.customFields` back with the branches, naming any
+  value whose `source` is `default`.
 - Creation requires an assigned tracker board; `board` shows it. If `board` is null, ask the user to assign one before filing (with `set_repo_board`, using a board id from `list_tracker_boards`), or offer `trackerBoard: "none"` for an internal-only task on an Optional-mode repo.
 
 Do not write repository names, branch names, or organization names into a prompt or example.
@@ -185,8 +192,9 @@ When the user is ready to act on what was found:
   Scope or a follow-up); Context is
   short, about ten lines, with evidence as one list; and every ticket key under `## Dependencies`
   is also passed as `dependsOnJiraKey`.
-- Confirm repo, Build from, Merge into, and auto-merge from `list_repos` according to the live
-  repository facts above, never from the spec text.
+- Confirm repo, Build from, Merge into, auto-merge, and the board's custom fields from
+  `list_repos` and `list_board_fields` according to the live repository facts above, never from
+  the spec text.
 - If any check fails, show the specific failing line and amended text, and do not call
   `create_task` until the user accepts it.
 - After the user accepts the pre-flight, call `create_task` with `verbatimSpec: true` and the
@@ -314,12 +322,27 @@ with nothing to resume. Tasks released by the removal are not made to wait on it
 `partial_failure`, list `details.steps` and say that calling the tool again retries them. On
 `in_progress`, another request is already running it: wait, do not call it twice.
 
+## Start over on a task
+
+When a user asks to start a task over, call `get_task` first and confirm that it is a task rather than a
+feature. Explain the two `reset_task` modes and ask which one they want:
+
+- `plan` (default): discard Minions' plan and learned state while keeping the branch and pull request.
+- `everything`: also close an open pull request unmerged and clear the branch and pull-request fields.
+
+Ask whether to resume `now` (Planning) or `later` (Backlog, paused), and obtain the user's explicit
+confirmation before calling `reset_task` with the chosen `mode`, `resume`, and optional `note`. Do not
+start over a Done task or one whose pull request is merged; relay the returned refusal. A partial failure
+records its steps: report `details.steps` and say that `reset_task` with `retry: true` retries only failed
+steps. On `in_progress`, another start-over or undo is already running; wait and do not call it twice.
+
 ## Features
 
 - Read a feature with `get_feature` before advising or acting.
 - Report `phase` and `paused` first.
 - Relay an unavailable action's `reason` verbatim.
 - Pass `expectedPlanVersion` from the last `get_feature` on every `add_feature_wave`.
+- For caller-authored features, use either `planDocument` or 1–10 `waves` entries; set each wave's `verbatimSpec` independently when its text must be preserved as written.
 - Land with `merge_feature` only after the user's explicit decision.
 
 ## Report status
