@@ -389,7 +389,7 @@ until it completes.
 Call the read-only `get_repo_setup` tool for the selected repo and use its live result. Do not
 write repository settings until the user explicitly confirms the specific changes. After confirmation,
 walk `add_repo` → `set_repo_settings` (stack label first, from `list_stack_labels`) → `set_repo_branches` → `set_repo_scripts`
-(MIN-2958) → `set_repo_secret` → `get_repo_setup` to confirm `dispatchable`. Check each of the following:
+(MIN-2958) → `set_repo_secret` → `get_repo_setup` to confirm `dispatchable`. To remove a repository secret, call `list_repo_secrets`, confirm the exact secret list with the user, then call `delete_repo_secret`; check inherited organization secrets before deleting an override. Check each of the following:
 
 1. **Stack label gate:** `stack_label_has_image` must be true. A repo without a stack label mapped
 to a runner image is not dispatchable; do not promise that work will run until this is fixed in
