@@ -1,6 +1,6 @@
 ---
 description: Show or switch the organization this Minions connection works in
-argument-hint: [organization name]
+argument-hint: "[organization name]"
 ---
 Use the Minions skill's Organizations section for `$ARGUMENTS`.
 If `$ARGUMENTS` is empty, call `list_orgs` and report the active organization and the others available; change nothing.

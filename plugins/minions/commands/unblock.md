@@ -1,6 +1,6 @@
 ---
 description: Review and unblock Minions work
-argument-hint: [ticket key]
+argument-hint: "[ticket key]"
 ---
 Use the Minions skill to review the user's blocked work.
 If `$ARGUMENTS` is present, address only that ticket; otherwise list the user's blocked work.

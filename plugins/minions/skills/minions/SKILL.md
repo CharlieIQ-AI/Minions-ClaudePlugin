@@ -96,7 +96,21 @@ call `attach_files` with inline base64 `files` or HTTPS `urls`; it accepts up to
 10 MB each, the same document and image types as `create_task`, and turns ZIPs into design
 bundles. URLs must be public HTTPS endpoints and are fetched for at most 15 seconds. For an
 attachment failure, read the returned validation or not-found error and do not retry with a
-larger or unsafe input. For an existing ticket, call
+larger or unsafe input. `attach_files` also takes a feature's epic key; every task in the feature
+gets the files on its next run.
+
+**Whenever files are attached** (on `create_task`, `create_feature` or `attach_files`), ask the
+user two questions per file before calling, and never answer them yourself:
+
+1. "Should agents get this file itself, or only read it?" — if itself, set `agentAccess: true` on
+   that file; the Builder and Test Author then get the file as attached. An unflagged file is
+   reference only (its text or a preview) and its original is not kept.
+2. For each file agents get: "Should it be added to your repo?" — put the answer in the request
+   text (`story`, the pasted spec, or the feature's description) in words, with the path if the
+   user gave one, e.g. "Add `brief.pdf` to the repo at `public/downloads/brief.pdf`" or "Agents use
+   `brief.pdf`; do not add it to the repo". The Planner records it; nothing else does.
+
+For an existing ticket, call
 `preview_ticket` first, show the user what would be adopted, and read `eligibleForAdoption`; when it
 is false, relay `ineligibleReasons` verbatim and do not call `adopt_ticket`. If the result has
 `code: "ambiguous"`, ask the user for the ticket URL and call nothing else. Prefer the ticket URL
@@ -158,9 +172,11 @@ answers with `file:line` citations. It is READ-ONLY — it never changes anythin
 user wants to understand how something works, what is and is not covered, or whether a behaviour
 is a bug, and especially when they have no access to the code themselves.
 
-- `start_research` opens a thread. Pass the question and the `repoLabels` to investigate (from
-  `list_repos`). `ask_research` adds a follow-up or redirects it; the whole thread is carried into
-  each answer.
+- `start_research` opens a thread across up to 5 distinct repositories. Pass the question and the
+  `repoLabels` to investigate (from `list_repos`), plus `refs` when each repository should be read
+  at a chosen branch (`{repoLabel: branch}`). `ref` is the primary repository's compatibility
+  shorthand; do not pass both `ref` and `refs`. `ask_research` adds a follow-up or redirects it;
+  the whole thread and its stored `refs` are carried into each answer.
 - **Answers are not instant and this is normal.** Both tools return as soon as the question is
   recorded, with `state: "running"`. Poll `get_research_thread` until `state` is `"idle"` and a new
   assistant message is present. A code-aware turn commonly takes 20-150 seconds, longer on the
@@ -168,7 +184,8 @@ is a bug, and especially when they have no access to the code themselves.
   user it is still working and keep polling.
 - `state` is `"abandoned"` when a turn was started and never finished — ask again. It is
   `"failed"` when the last turn errored; `error` says why, and asking again retries.
-- `list_research_threads` shows the organization's investigations and the tickets each produced.
+- `list_research_threads` and `get_research_thread` show the stored `refs` alongside the
+  organization's investigations and the tickets each produced.
 - One turn at a time per thread: `ask_research` returns `in_progress` if one is already running.
 
 ### Turning research into work
@@ -197,6 +214,9 @@ When the user is ready to act on what was found:
   the spec text.
 - If any check fails, show the specific failing line and amended text, and do not call
   `create_task` until the user accepts it.
+- When the user attaches files to the spec, ask the two attachment questions under **Create or adopt
+  a task** and set `agentAccess` per file. The repo decision must already be in the spec's words;
+  if it is not, show the line to add and wait for the user to accept it.
 - After the user accepts the pre-flight, call `create_task` with `verbatimSpec: true` and the
   accepted text unchanged; read the returned `resolved` values back to the user. Report the
   returned `minionsUrl` as the link to open the task, followed by the tracker `url`.
@@ -213,7 +233,7 @@ and ask for the user's explicit decision before calling it:
 | CI-fix decision | `resolve_ci_fix` |
 | CI auto-fix stuck (hit its attempt cap) | `resolve_ci_fix` with `action: retry` — resets the counters and re-runs CI on the code host; on a feature it also sets auto-merge back on |
 | PR review needs you (`pr_response`, the PR responder hit its attempt cap) | `retry_pr_responder` — resets the attempt count; the watcher queues the responder on its next check, within about 10 minutes, while the task is in review (`inReview: false` means it resumes when the task is back in review). A paused task keeps the reset and runs once resumed. Replying on the pull request also restarts it |
-| Provider-reported failing CI (`ci_failed`) | Fix or rerun the pull-request checks; no MCP action automatically changes them |
+| Provider-reported failing CI (`ci_failed`) | Call `refresh_ci` to re-read the state, then, after the user's confirmation, call `run_ci_fixer` against the stored failing run |
 | Hand-back to the requester | `resolve_handback` |
 | Proposed feature split that should remain one task | `keep_single_task` |
 | Merge Problem | `merge_task`, but only after the underlying cause is fixed |
@@ -229,7 +249,8 @@ For a hand-back, read `handback.recommendedStatus` and `resumeStatuses` from `li
 
 A Merge Problem is not solved by repeatedly calling `merge_task`: inspect the cause, have it fixed,
 then merge. A `ci_failed` blocker means the provider's live pull-request checks are failing: report
-its `get_task.ci` check names, commit, and run URL, then direct the user to fix or rerun those checks.
+its `get_task.ci` check names, commit, and run URL, then call `refresh_ci` to re-read the state.
+After the user confirms, call `run_ci_fixer` to start a fixer against the stored failing run.
 It is visible even when CI auto-fix is disabled, and `resolve_ci_fix` does not apply
 unless the blocker is specifically `ci_confirm` or a CI auto-fix stuck blocker (`action: retry`). For parked states not represented by one of those actions, use the web application;
 the remaining resolution steps are web-app actions, not substitute MCP calls. Do not call an action
@@ -412,7 +433,7 @@ until it completes.
 Call the read-only `get_repo_setup` tool for the selected repo and use its live result. Do not
 write repository settings until the user explicitly confirms the specific changes. After confirmation,
 walk `add_repo` → `set_repo_settings` (stack label first, from `list_stack_labels`) → `set_repo_branches` → `set_repo_scripts`
-(MIN-2958) → `set_repo_secret` → `get_repo_setup` to confirm `dispatchable`. To remove a repository secret, call `list_repo_secrets`, confirm the exact secret list with the user, then call `delete_repo_secret`; check inherited organization secrets before deleting an override. Check each of the following:
+(MIN-2958) → `set_repo_secret` → `get_repo_setup` to confirm `dispatchable`. After significant architectural changes, or when `get_repo_setup` shows a failed or skipped ingest, offer `ingest_repo` and call it only after the user confirms; it queues the background regeneration and reports its queue position. To remove a repository secret, call `list_repo_secrets`, confirm the exact secret list with the user, then call `delete_repo_secret`; check inherited organization secrets before deleting an override. Check each of the following:
 
 1. **Stack label gate:** `stack_label_has_image` must be true. A repo without a stack label mapped
 to a runner image is not dispatchable; do not promise that work will run until this is fixed in

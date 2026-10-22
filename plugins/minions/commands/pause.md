@@ -1,6 +1,6 @@
 ---
 description: Pause a Minions task
-argument-hint: [ticket key]
+argument-hint: "[ticket key]"
 ---
 Use the Minions skill's Clear blocked work section for `$ARGUMENTS`.
 If `$ARGUMENTS` is empty, ask for the ticket key.

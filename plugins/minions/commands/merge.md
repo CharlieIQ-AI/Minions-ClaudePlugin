@@ -1,6 +1,6 @@
 ---
 description: Merge a Minions task that is ready
-argument-hint: [ticket key]
+argument-hint: "[ticket key]"
 ---
 Use the Minions skill's Clear blocked work section for `$ARGUMENTS`.
 If the key is an epic (a feature), inspect with `get_feature` and land with `merge_feature`, never `merge_task`.

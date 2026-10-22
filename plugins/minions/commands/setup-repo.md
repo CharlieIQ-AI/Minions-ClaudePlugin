@@ -1,6 +1,6 @@
 ---
 description: Set up a repository for Minions
-argument-hint: [repo label]
+argument-hint: "[repo label]"
 ---
 Use the Minions skill to walk through the repo-setup checklist.
 When the repository is not registered yet, follow the skill's "Register a repository" steps:

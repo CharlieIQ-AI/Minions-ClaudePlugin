@@ -1,6 +1,6 @@
 ---
 description: File a work request with Minions
-argument-hint: [what to build]
+argument-hint: "[what to build]"
 ---
 Use the Minions skill to file the work described in `$ARGUMENTS`.
 Treat the argument as the work to file; if it is empty, ask what work the user wants to file.

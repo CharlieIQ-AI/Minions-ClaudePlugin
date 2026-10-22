@@ -1,6 +1,6 @@
 ---
 description: Report Minions work status
-argument-hint: [ticket key]
+argument-hint: "[ticket key]"
 ---
 Use the Minions skill to report status without changing anything.
 If the key is an epic (a feature), use `get_feature` and report `phase` and `paused` first.

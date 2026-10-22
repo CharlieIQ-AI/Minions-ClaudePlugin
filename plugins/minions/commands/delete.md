@@ -1,6 +1,6 @@
 ---
 description: Delete a Minions task or feature
-argument-hint: [ticket key]
+argument-hint: "[ticket key]"
 ---
 Use the Minions skill's Delete a task or feature section for `$ARGUMENTS`.
 If `$ARGUMENTS` is empty, ask for the ticket key.
