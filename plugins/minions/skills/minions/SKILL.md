@@ -27,7 +27,7 @@ pause, or delete anything without the user's explicit decision. Reading status a
 safe; any tool that changes work requires the user's decision immediately before the action.
 This rule covers every slash command in `commands/`, including `/spec`, `/why`, `/fix-ci`,
 `/answer`, `/merge`, `/depends`, `/pause`, `/resume`, `/delete`, `/restore`, `/unblock`, and `/bugs`; call a mutating tool
-(`create_task`, `resolve_ci_fix`, `retry_pr_responder`, `answer_clarification`, `merge_task`, `merge_feature`, `set_dependency`, `set_task_owner`,
+(`create_task`, `resolve_ci_fix`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `merge_task`, `merge_feature`, `set_dependency`, `set_task_owner`,
 `pause_task`, `resume_task`, `delete_task`, `restore_task`, `delete_feature`, `restore_feature`, `switch_org`, `dismiss_tracker_sync`, or `sign_off_task`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
 
 On an error result, read `error.code` first and branch on it: `not_found` means say the task is not visible to this connection; `permission_denied` means say so and stop; `not_in_window`, `already_merged`, `stale_plan_version`, `ambiguous`, `in_progress`, `idempotency_conflict`, and `already_removed` mean relay the message and follow its instruction; `partial_failure` means list `details.steps`; fall back to the message when `structuredContent` is absent.
@@ -119,6 +119,16 @@ when the user has one, because a bare key can match more than one connected boar
 `create_feature`, report the returned `minionsUrl` as the Minions page to open; keep the returned
 tracker `url` as the tracker link and report it second. For a feature, include the feature link and
 each child story's `minionsUrl` when reporting the created result.
+
+### Product feedback
+
+Use `submit_product_feedback`, `list_my_product_feedback`, `get_product_feedback`, and
+`reply_to_product_feedback` to file feedback about Minions, read the team's replies, and respond.
+`list_my_product_feedback` accepts `scope: "mine"` (the default) or `scope: "org"`; an org admin or a
+member with the feedback-reader permission may use the org scope to list every report in the active organization.
+Organization admins can use `set_feedback_viewer` to grant or revoke that read-only permission.
+Files use the same inline base64 `files` shape as `attach_files`, without `agentAccess`. Reading
+another member's report does not grant reply, upload, or task-link permissions.
 
 ### Recover a lost create response
 
@@ -233,6 +243,7 @@ and ask for the user's explicit decision before calling it:
 | CI-fix decision | `resolve_ci_fix` |
 | CI auto-fix stuck (hit its attempt cap) | `resolve_ci_fix` with `action: retry` — resets the counters and re-runs CI on the code host; on a feature it also sets auto-merge back on |
 | PR review needs you (`pr_response`, the PR responder hit its attempt cap) | `retry_pr_responder` — resets the attempt count; the watcher queues the responder on its next check, within about 10 minutes, while the task is in review (`inReview: false` means it resumes when the task is back in review). A paused task keeps the reset and runs once resumed. Replying on the pull request also restarts it |
+| PR feedback waiting for approval (blocker type pr_feedback) | `resolve_pr_feedback` — approve or decline each item in `prFeedback.items`, or approve all; approved items start within about 10 minutes. |
 | Provider-reported failing CI (`ci_failed`) | Call `refresh_ci` to re-read the state, then, after the user's confirmation, call `run_ci_fixer` against the stored failing run |
 | Hand-back to the requester | `resolve_handback` |
 | Proposed feature split that should remain one task | `keep_single_task` |
@@ -351,6 +362,10 @@ feature. Explain the two `reset_task` modes and ask which one they want:
 - `plan` (default): discard Minions' plan and learned state while keeping the branch and pull request.
 - `everything`: also close an open pull request unmerged and clear the branch and pull-request fields.
 
+Start over re-reads the tracker's current title, description and `repo-*` labels and shows a preview
+of title or repo changes before confirmation. If the labels name different repos, `plan` is refused:
+choose `everything` to move the task to those repos.
+
 Ask whether to resume `now` (Planning) or `later` (Backlog, paused), and obtain the user's explicit
 confirmation before calling `reset_task` with the chosen `mode`, `resume`, and optional `note`. Do not
 start over a Done task or one whose pull request is merged; relay the returned refusal. A partial failure
@@ -393,7 +408,8 @@ Do not use status checks as a pretext to change a task. A run marked `retrying` 
 recovering on its own; report that fact and do not manually retry it. If the live result is empty
 or stale, say so and ask the user what they want to inspect rather than filling in missing facts.
 `list_open_bugs` lists open bug reports read-only; it is restricted to super admins, so relay the
-tool's error as the answer when it refuses.
+tool's error as the answer when it refuses. Super admins can reply with `reply_to_bug` and change
+status with `set_bug_status`; both are super-admin only, and ask the user before either write.
 
 For fleet-level questions — "how are the runs looking", "what is running", "what failed today" — call `get_pipeline_overview` (scope `mine` or `org`, `windowHours` 1–168, default 24) once instead of walking tasks one by one. Report tasks by status, runs by role and outcome with cost, active runs (call out any over 30 minutes), failures grouped by error summary, stuck queue rows, and the blocker count. Runs marked `retrying` or `incomplete` are self-recovering — report them, do not retry them. For detail on one blocked or failed ticket, use `list_blockers` or `/why <ticket>`. The overview is read-only. For "how are the repos doing" or "which repos have problems", super admins call `get_pipeline_health` (read-only; optional `day`, `repo`, `orgId`) for the daily per-repo health report, and relay the tool's error as the answer when it refuses.
 
