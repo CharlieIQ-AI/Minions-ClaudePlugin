@@ -42,4 +42,4 @@ Test duplicate and distinct ids.
 ## Out of Scope for Tests
 Load testing.
 
-Use repo-python, Build from main, Merge into main, and enable auto-merge if the live settings allow it. Preserve this text as written.
+This work has no existing tracker ticket. Use repo-python, Build from main, Merge into main, and enable auto-merge if the live settings allow it. Preserve this text as written.

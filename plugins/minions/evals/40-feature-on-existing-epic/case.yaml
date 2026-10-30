@@ -1,0 +1,40 @@
+schema_version: "1.1"
+name: feature-on-existing-epic
+tags: [file-work, adoption, feature, verbatim-spec]
+description: Building an existing epic as a feature uses create_feature with existingTicket, gives each named child a childKey wave (one with the user's spec kept as written), and creates no new epic or duplicate child.
+runs: 1
+execution:
+  max_turns: 12
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Build epic DEMO-50 as a Minions feature in repo-python, Build from main, Merge into main, auto-merge off, waves auto-merge on. Use both of its existing children: DEMO-51 with my spec below, kept as written, and DEMO-52 with its own description. Then add a third wave: \"Audit log — record each copied link with the user and time.\" I confirm DEMO-50 if the preview matches.\n\nSpec for DEMO-51:\n## Goal\nAdd a \"Copy link\" button to each task card.\n## Acceptance criteria\n- AC1: Clicking \"Copy link\" copies the card's URL.\n- AC2: A \"Copied\" toast shows for 2 seconds."
+graders:
+  - name: previews-first
+    type: tool_order
+    before: mcp__minions__preview_ticket
+    after: mcp__minions__create_feature
+  - name: uses-the-existing-epic
+    type: tool_used
+    tool: mcp__minions__create_feature
+    input_match: '"existingTicket"\\s*:\\s*"[^"]*DEMO-50'
+    min: 1
+  - name: adopts-the-first-child
+    type: tool_used
+    tool: mcp__minions__create_feature
+    input_match: '"childKey"\\s*:\\s*"DEMO-51"'
+    min: 1
+  - name: adopts-the-second-child
+    type: tool_used
+    tool: mcp__minions__create_feature
+    input_match: '"childKey"\\s*:\\s*"DEMO-52"'
+    min: 1
+  - name: keeps-the-child-spec
+    type: tool_used
+    tool: mcp__minions__create_feature
+    input_match: '"verbatimSpec"\\s*:\\s*true'
+    min: 1
+  - name: does-not-adopt-as-a-task
+    type: tool_used
+    tool: mcp__minions__adopt_ticket
+    min: 0
+    max: 0

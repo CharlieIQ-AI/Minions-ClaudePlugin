@@ -1,0 +1,35 @@
+schema_version: "1.1"
+name: adopt-with-written-spec
+tags: [file-work, adoption, verbatim-spec, safety]
+description: /minions:spec for work that already has a tracker ticket files the spec on that ticket through create_task, keeping its dependency, instead of filing a duplicate.
+runs: 1
+execution:
+  max_turns: 12
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "/minions:spec\n\n## Context\nThe export button times out on large accounts. Evidence:\n- Exports over 10,000 rows fail after 30 seconds.\n\n## Goal\nStream large exports.\n\n## Acceptance criteria\n- AC1: An export of 50,000 rows completes without a timeout.\n- AC2: An export of 10 rows still downloads as one file.\n\n## Coverage declaration\nFailure paths: AC1\nAuthorization: N/A — no authorization change\nEmpty & loading states: N/A — no user interface change\n\n## Technical Notes\nStream rows from the export query.\n\n## Implementation outline\n1. Replace the buffered export with a stream.\n\n## Assumptions\nThe export query supports a cursor.\n\n## Dependencies\nDEMO-40\n\n## Blocks\nNone.\n\n## Out of Scope\nNew export formats.\n\n## Test Plan\nTest 10-row and 50,000-row exports.\n\n## Out of Scope for Tests\nLoad testing.\n\nThis work already has tracker ticket DEMO-42; file the spec on DEMO-42 instead of creating a new ticket. Use repo-python, Build from main, Merge into main, auto-merge off. I confirm DEMO-42 if the preview matches, and I accept the pre-flight if it passes."
+graders:
+  - name: previews-first
+    type: tool_order
+    before: mcp__minions__preview_ticket
+    after: mcp__minions__create_task
+  - name: files-on-the-existing-ticket
+    type: tool_used
+    tool: mcp__minions__create_task
+    input_match: '"existingTicket"\\s*:\\s*"[^"]*DEMO-42'
+    min: 1
+  - name: preserves-the-spec
+    type: tool_used
+    tool: mcp__minions__create_task
+    input_match: '"verbatimSpec"\\s*:\\s*true'
+    min: 1
+  - name: keeps-the-dependency
+    type: tool_used
+    tool: mcp__minions__create_task
+    input_match: '"dependsOnJiraKey"\\s*:\\s*"DEMO-40"'
+    min: 1
+  - name: does-not-drop-the-dependency-through-adopt-ticket
+    type: tool_used
+    tool: mcp__minions__adopt_ticket
+    min: 0
+    max: 0

@@ -27,7 +27,7 @@ pause, or delete anything without the user's explicit decision. Reading status a
 safe; any tool that changes work requires the user's decision immediately before the action.
 This rule covers every slash command in `commands/`, including `/spec`, `/why`, `/fix-ci`,
 `/answer`, `/merge`, `/depends`, `/pause`, `/resume`, `/delete`, `/restore`, `/unblock`, and `/bugs`; call a mutating tool
-(`create_task`, `resolve_ci_fix`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `merge_task`, `merge_feature`, `set_dependency`, `set_task_owner`,
+(`create_task`, `resolve_ci_fix`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `accept_recommended_answers`, `merge_task`, `merge_feature`, `set_dependency`, `set_task_owner`,
 `pause_task`, `resume_task`, `delete_task`, `restore_task`, `delete_feature`, `restore_feature`, `switch_org`, `dismiss_tracker_sync`, or `sign_off_task`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
 
 On an error result, read `error.code` first and branch on it: `not_found` means say the task is not visible to this connection; `permission_denied` means say so and stop; `not_in_window`, `already_merged`, `stale_plan_version`, `ambiguous`, `in_progress`, `idempotency_conflict`, and `already_removed` mean relay the message and follow its instruction; `partial_failure` means list `details.steps`; fall back to the message when `structuredContent` is absent.
@@ -49,7 +49,8 @@ organizations may ask to work in another one:
   `list_orgs` returned. It applies from the next call: call `list_repos` again afterwards rather
   than reusing an earlier result. Never switch to guess where a repository might live.
 - If the organization is not in `list_orgs`, say so; membership is managed in the web application.
-- An org admin sees and manages every team with `list_teams`, `add_team_member`, and `remove_team_member`. A team lead sees only the teams they lead in `list_teams`, may add or remove members of those teams, and may use `invite_user` to invite a `user` onto one by passing its id as `teamId`. Any other team operation is managed in the web application.
+- An org admin sees and manages every team with `list_teams`, `add_team_member`, and `remove_team_member`. `list_team_members` shows a team's members and pending invites to the same people who may manage it; `list_user_teams` shows the teams a person is on (own teams for anyone; org admins read anyone in the organization; a lead reading someone else sees only the teams the lead leads). Org admins also invite people with `invite_user`. A team lead sees only the teams they lead in `list_teams` and may add or remove members of those teams; inviting people is for org admins. Any other team operation is managed in the web application.
+- Each team member has a level on each repository and tracker board their team uses: Member (the default), View (reads the settings) or Edit (changes them). `get_repo_access` and `get_board_access` list who holds which level and need View; an org admin sets one with `set_repo_access` or `set_board_access`. Ask the user before changing a level.
 
 ## File work
 
@@ -110,12 +111,19 @@ user two questions per file before calling, and never answer them yourself:
    user gave one, e.g. "Add `brief.pdf` to the repo at `public/downloads/brief.pdf`" or "Agents use
    `brief.pdf`; do not add it to the repo". The Planner records it; nothing else does.
 
-For an existing ticket, call
-`preview_ticket` first, show the user what would be adopted, and read `eligibleForAdoption`; when it
-is false, relay `ineligibleReasons` verbatim and do not call `adopt_ticket`. If the result has
-`code: "ambiguous"`, ask the user for the ticket URL and call nothing else. Prefer the ticket URL
-when the user has one, because a bare key can match more than one connected board. Call
-`adopt_ticket` only after they explicitly choose to adopt an eligible ticket. Never use `create_task` to duplicate an existing ticket. For `create_task`, `adopt_ticket`, and
+Before filing a written spec, ask whether the work already has a tracker ticket. If it does, call
+`preview_ticket` first and show the user the matched Jira, Azure DevOps, GitLab, GitHub Projects, or
+ClickUp ticket, including whether it is an epic and any existing children. Read
+`eligibleForAdoption`; when it is false, relay `ineligibleReasons` verbatim and do not adopt. If the
+result has `code: "ambiguous"`, ask for the ticket URL and call nothing else. Prefer the ticket URL
+when the user has one, because a bare reference can match more than one connected board. Act on the
+ticket only after the user explicitly confirms it. To file an authored spec on it, call `create_task`
+with `existingTicket` set to that ticket and the complete spec in `story` with `verbatimSpec: true`,
+so its `dependsOnJiraKey` and `files` are kept; the server preserves the spec for ordinary stories,
+while an epic keeps its spec split-able and attaches its existing children. To take on the ticket
+with no authored spec, call `adopt_ticket`, and the ticket's own description is used. Never call
+`create_task` without `existingTicket` for work that already has a ticket: that files a duplicate.
+For `create_task`, `adopt_ticket`, and
 `create_feature`, report the returned `minionsUrl` as the Minions page to open; keep the returned
 tracker `url` as the tracker link and report it second. For a feature, include the feature link and
 each child story's `minionsUrl` when reporting the created result.
@@ -124,6 +132,8 @@ each child story's `minionsUrl` when reporting the created result.
 
 Use `submit_product_feedback`, `list_my_product_feedback`, `get_product_feedback`, and
 `reply_to_product_feedback` to file feedback about Minions, read the team's replies, and respond.
+Use `link_feedback_task` or `unlink_feedback_task` to manage a visible task link on an item; only the
+item's reporter or a super admin may call either tool, and ask the user before making the change.
 `list_my_product_feedback` accepts `scope: "mine"` (the default) or `scope: "org"`; an org admin or a
 member with the feedback-reader permission may use the org scope to list every report in the active organization.
 Organization admins can use `set_feedback_viewer` to grant or revoke that read-only permission.
@@ -212,6 +222,8 @@ When the user is ready to act on what was found:
 ## File a written spec
 
 - If the argument is empty, ask for the complete spec text or a file path and stop.
+- Ask whether this work already has a tracker ticket and wait for the answer before calling any
+  create tool. If it has one, preview and confirm it as described under **Create or adopt a task**.
 - Run this pre-flight over the supplied text: every `## Coverage declaration` line uses the colon
   form (`Failure paths:`, `Authorization:`, `Empty & loading states:`) and cites `AC<n>` or
   `N/A — <reason>`; no acceptance criterion requires a result that can be verified only by
@@ -228,7 +240,8 @@ When the user is ready to act on what was found:
   a task** and set `agentAccess` per file. The repo decision must already be in the spec's words;
   if it is not, show the line to add and wait for the user to accept it.
 - After the user accepts the pre-flight, call `create_task` with `verbatimSpec: true` and the
-  accepted text unchanged; read the returned `resolved` values back to the user. Report the
+  accepted text unchanged, and with `existingTicket` set to the confirmed ticket when the work
+  already has one; read the returned `resolved` values and any `warnings` back to the user. Report the
   returned `minionsUrl` as the link to open the task, followed by the tracker `url`.
 
 ## Clear blocked work
@@ -240,6 +253,7 @@ and ask for the user's explicit decision before calling it:
 | Blocker or parked state | Tool |
 | --- | --- |
 | Clarification question | `answer_clarification` |
+| Recommended answers available | Present each `recommendedAnswers` question and answer, ask for confirmation, then call `accept_recommended_answers` with the task key. |
 | CI-fix decision | `resolve_ci_fix` |
 | CI auto-fix stuck (hit its attempt cap) | `resolve_ci_fix` with `action: retry` — resets the counters and re-runs CI on the code host; on a feature it also sets auto-merge back on |
 | PR review needs you (`pr_response`, the PR responder hit its attempt cap) | `retry_pr_responder` — resets the attempt count; the watcher queues the responder on its next check, within about 10 minutes, while the task is in review (`inReview: false` means it resumes when the task is back in review). A paused task keeps the reset and runs once resumed. Replying on the pull request also restarts it |
@@ -307,6 +321,8 @@ Call `get_task` and check `canRequestChanges` before changing finished work. If 
 the task's current status and call nothing. If it is true, explain that the task will return to Planning
 with the user's instructions, obtain the user's explicit decision, and then call `request_changes`.
 `reviewCycleLimit` is optional when the user wants to raise the per-ticket review-cycle cap.
+
+Use `add_task_note` when the user wants to tell the agents something without stopping or sending the task back; it needs no confirmation beyond the user having stated the note.
 
 ## Delete a task or feature
 
@@ -379,6 +395,9 @@ steps. On `in_progress`, another start-over or undo is already running; wait and
 - Relay an unavailable action's `reason` verbatim.
 - Pass `expectedPlanVersion` from the last `get_feature` on every `add_feature_wave`.
 - For caller-authored features, use either `planDocument` or 1–10 `waves` entries; set each wave's `verbatimSpec` independently when its text must be preserved as written.
+- When feature-sized work already has a tracker ticket, call `preview_ticket` and confirm the ticket with the user, then call `create_feature` with `existingTicket` set to it: the ticket becomes the feature's epic, and no new epic is created. For an epic, ask which of `preview_ticket`'s `children` to include and whether any has its own spec. Give each included child a wave with its `childKey`: omit `description` to use the child's own text, or pass the spec as `description` with `verbatimSpec: true`. Waves without `childKey` create new tickets. Tell the user about every key in the returned `untouchedChildren`: those children were left out of the feature.
+- For a feature across several repos, pass `create_feature` a `repos` array (2–5 entries, each with its own Merge into and Build from branches, the first the primary) instead of `repoId`, and give each wave the `repos` labels it changes; ask the user which repos each wave changes when it is not clear. With `existingTicket` on a GitHub issue, the issue's own repo must be the first entry.
+- To bring a child the feature left out into it later, call `add_feature_wave` with a wave whose `childKey` is that child (from `preview_ticket` on the feature's epic key), with the same description rules as above.
 - Land with `merge_feature` only after the user's explicit decision.
 
 ## Report status
@@ -402,6 +421,7 @@ Status reporting is read-only. Use the narrowest read needed:
 - Use `get_task` for the current task state and summary. Read `paused`, `owner`, `actions`, and `blocked` from its result rather than inferring them from `status`; report a paused task as paused first and never as simply done or in progress. When `get_task.ci` is failing or pending, report its failing checks, commit, and run URL and say the code host blocks the merge until CI passes; when `blocked.type` is `ci_failed`, report that blocker too. Do not imply that auto-fix is enabled. When `blocked.ciFix` is present, report its failing checks, commit, count versus threshold, run URL, and the Approve auto-fix / Leave as-is choice. Include `urls.minions` whenever you report the task. Report an unavailable action with its `reason` verbatim instead of attempting it, and request `includeBuildPlan` only when the user asks about the plan.
 - Use `list_my_tasks` row `url` when reporting a task from that list.
 - Use `get_task_activity` for the lifecycle and action history.
+- Use `get_test_runs` for recorded test-container commands and their output; pass `jobId` when inspecting one run.
 - Use `get_job_log` **or** `get_task_comments` only when a run failed and its details are needed.
 
 Do not use status checks as a pretext to change a task. A run marked `retrying` or `incomplete` is
@@ -431,7 +451,8 @@ tries to clone it.
 
 1. Call `list_code_connections` to see which code providers the organization has connected.
 2. Call `list_provider_repos` for the chosen provider with that provider's scope
-(`githubInstallationId` / `gitlabGroupPath` / `bitbucketWorkspace` / `adoProject`). Narrow with
+(`githubInstallationId` / `gitlabGroupPath` / `bitbucketWorkspace` / `adoProject`, plus `adoOrgUrl`
+from `azureDevOpsConnections` when more than one Azure DevOps organization is connected). Narrow with
 `query` when `truncated` is true rather than asking for a larger page. A row with `alreadyAdded`
 is already registered: report its `label` instead of offering to add it again.
 3. Read the result honestly. `connected: false` means connect the provider first. A non-null
@@ -439,7 +460,8 @@ is already registered: report its `label` instead of offering to add it again.
 absent. For GitHub, `cache.fetchedAt` is when that list was last refreshed and `cache.neverFetched`
 means it has never been, so say when the listing may be stale.
 4. Confirm the chosen repository with the user, then call `add_repo` with the row's `identifier`
-as that provider's coordinate and its `defaultBranch`. Never substitute a guessed branch for a
+as that provider's coordinate and its `defaultBranch` (for Azure DevOps, the same `adoOrgUrl` and
+`adoProject` the listing used). Never substitute a guessed branch for a
 null `defaultBranch`; ask instead.
 5. Report that initial ingest has been queued and that the repository is not usable for work
 until it completes.
@@ -467,7 +489,14 @@ Keep installation and verification separate when explaining setup.
 whether CI auto-fix is enabled, what threshold is configured for asking for confirmation, and that
 an automatic fix must not be approved without the user's explicit decision. Do not assume a
 threshold from a default: repository settings override it.
-5. **MINIONS.md:** when drafting repository guidance, put anything that applies to every agent
+6. **Visual evidence:** screenshots are off for every repository until someone turns them on.
+`get_repo_setup` reports the switch and the latest capture check, which proves screenshots work on
+the repository's runner image. Offer `run_capture_check` when no check has run or the last one is
+out of date, and call it only after the user confirms; it queues the check. Turn screenshots on with
+`set_repo_settings` and `visualEvidenceEnabled` only after the user confirms and only while the latest
+check passed; the server refuses it otherwise. A check that reports the stack is not supported
+cannot be fixed by retrying.
+7. **MINIONS.md:** when drafting repository guidance, put anything that applies to every agent
 under a `General` section, then add a distinct section per role only where the guidance differs:
 `Planner`, `Plan Reviewer`, `Builder`, `Test Author`, and `Reviewer`. `General` reaches every role,
 including one with no section of its own. Do not rely on text above the first heading instead: that
