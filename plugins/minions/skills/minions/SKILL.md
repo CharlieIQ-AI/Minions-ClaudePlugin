@@ -30,7 +30,7 @@ This rule covers every slash command in `commands/`, including `/spec`, `/why`, 
 (`create_task`, `resolve_ci_fix`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `accept_recommended_answers`, `merge_task`, `merge_feature`, `set_dependency`, `set_task_owner`,
 `pause_task`, `resume_task`, `delete_task`, `restore_task`, `delete_feature`, `restore_feature`, `switch_org`, `dismiss_tracker_sync`, or `sign_off_task`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
 
-On an error result, read `error.code` first and branch on it: `not_found` means say the task is not visible to this connection; `permission_denied` means say so and stop; `not_in_window`, `already_merged`, `stale_plan_version`, `ambiguous`, `in_progress`, `idempotency_conflict`, and `already_removed` mean relay the message and follow its instruction; `partial_failure` means list `details.steps`; fall back to the message when `structuredContent` is absent.
+On an error result (`isError: true`), parse `content[0].text` as JSON and read `error.code` first; branch on it: `not_found` means say the task is not visible to this connection; `permission_denied` means say so and stop; `not_in_window`, `already_merged`, `stale_plan_version`, `ambiguous`, `in_progress`, `idempotency_conflict`, and `already_removed` mean relay the message and follow its instruction; `partial_failure` means list `details.steps`; an error result never carries `structuredContent`; `error.message` is the text to relay.
 
 Use the live results returned by the MCP. Do not infer a repository, branch, policy, ticket state,
 blocker, or threshold from this document or from an earlier conversation.
@@ -260,7 +260,8 @@ and ask for the user's explicit decision before calling it:
 | PR feedback waiting for approval (blocker type pr_feedback) | `resolve_pr_feedback` — approve or decline each item in `prFeedback.items`, or approve all; approved items start within about 10 minutes. |
 | Provider-reported failing CI (`ci_failed`) | Call `refresh_ci` to re-read the state, then, after the user's confirmation, call `run_ci_fixer` against the stored failing run |
 | Hand-back to the requester | `resolve_handback` |
-| Proposed feature split that should remain one task | `keep_single_task` |
+| Proposed feature split accepted as a feature | Show the proposed breakdown, ask for the user's decision, then call `convert_to_feature` (optionally with edited `waves` and required `autoMerge`) |
+| Proposed feature split that should remain one task | `keep_single_task` — call it when the user rejects the breakdown |
 | Merge Problem | `merge_task`, but only after the underlying cause is fixed |
 | Rework requested by review | `request_changes` |
 | Feature review needs another attempt | `retry_feature_review` |
@@ -406,7 +407,7 @@ Status reporting is read-only. Use `list_my_tasks` for the caller's own work and
 
 ### Typed tool results
 
-Every tool result is typed by its published `outputSchema`. Read `structuredContent` when it is present, and do not re-derive or invent fields that the schema does not declare.
+Every success result is typed by its published `outputSchema`. Read `structuredContent` when it is present (success results only), and do not re-derive or invent fields that the schema does not declare.
 
 ### Follow changes
 
