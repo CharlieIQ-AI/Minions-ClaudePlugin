@@ -195,7 +195,10 @@ is a bug, and especially when they have no access to the code themselves.
 - `start_research` opens a thread across up to 5 distinct repositories. Pass the question and the
   `repoLabels` to investigate (from `list_repos`), plus `refs` when each repository should be read
   at a chosen branch (`{repoLabel: branch}`). `ref` is the primary repository's compatibility
-  shorthand; do not pass both `ref` and `refs`. `ask_research` adds a follow-up or redirects it;
+  shorthand; do not pass both `ref` and `refs`. `ref` and `refs` carry only branch overrides, so
+  null means the repository's default branch; `branches` reports the effective branch per
+  repository resolved at creation, and `commitSha` reports the commit the latest completed
+  code-aware turn read, null until one has. `ask_research` adds a follow-up or redirects it;
   the whole thread and its stored `refs` are carried into each answer.
 - **Answers are not instant and this is normal.** Both tools return as soon as the question is
   recorded, with `state: "running"`. Poll `get_research_thread` until `state` is `"idle"` and a new
@@ -205,7 +208,9 @@ is a bug, and especially when they have no access to the code themselves.
 - `state` is `"abandoned"` when a turn was started and never finished — ask again. It is
   `"failed"` when the last turn errored; `error` says why, and asking again retries.
 - `list_research_threads` and `get_research_thread` show the stored `refs` alongside the
-  organization's investigations and the tickets each produced.
+  organization's investigations and the tickets each produced. Their `branches` entries show
+  the effective branch resolved at creation, and `commitSha` is the commit the latest completed
+  code-aware turn read (null until one has).
 - One turn at a time per thread: `ask_research` returns `in_progress` if one is already running.
 
 ### Turning research into work
