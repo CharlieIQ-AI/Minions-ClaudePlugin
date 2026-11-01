@@ -93,12 +93,12 @@ result, ask the user to choose again rather than guessing.
 For a new task, collect the user's request and the choices above, then call `create_task` only
 after the user has made the required decisions. Generate a fresh `clientRequestId` for every
 `create_task`, `adopt_ticket`, and `create_feature` call. To add evidence after a task exists,
-call `attach_files` with inline base64 `files` or HTTPS `urls`; it accepts up to five files at
+call `attach_files` with inline base64 `files` or HTTPS `urls`; in Claude Code, use `{ "path": "./mockup.png" }` with the Minions plugin, which uploads the local file before the call (never base64 a local file). It accepts up to five files at
 10 MB each, the same document and image types as `create_task`, and turns ZIPs into design
-bundles. URLs must be public HTTPS endpoints and are fetched for at most 15 seconds. For an
-attachment failure, read the returned validation or not-found error and do not retry with a
+bundles. URLs must be public HTTPS endpoints and are fetched for at most 15 seconds. An optional
+`sha256` on each file or URL is verified server-side. For an attachment failure, read the returned validation or not-found error and do not retry with a
 larger or unsafe input. `attach_files` also takes a feature's epic key; every task in the feature
-gets the files on its next run.
+gets the files on its next run. `get_task` reports the SHA-256 digest, attachment size in bytes, and `addedAfterPlan`; when a task reports `addedAfterPlan`, tell the user the task page offers "Re-plan with new files".
 
 **Whenever files are attached** (on `create_task`, `create_feature` or `attach_files`), ask the
 user two questions per file before calling, and never answer them yourself:
@@ -326,6 +326,8 @@ After three triage runs, only the two named options can be accepted.
 Call `get_task` and check `canRequestChanges` before changing finished work. If it is false, report
 the task's current status and call nothing. If it is true, explain that the task will return to Planning
 with the user's instructions, obtain the user's explicit decision, and then call `request_changes`.
+`get_task`'s `runInFlight` says whether an agent run is in progress; when it is true, `request_changes`
+can use `cancelRun: true` to stop that run before replanning.
 `reviewCycleLimit` is optional when the user wants to raise the per-ticket review-cycle cap.
 
 Use `add_task_note` when the user wants to tell the agents something without stopping or sending the task back; it needs no confirmation beyond the user having stated the note.
