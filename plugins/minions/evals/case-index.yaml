@@ -47,3 +47,4 @@ cases:
   - 38-adopt-with-written-spec
   - 39-spec-asks-for-existing-ticket
   - 40-feature-on-existing-epic
+  - 41-org-usage-report

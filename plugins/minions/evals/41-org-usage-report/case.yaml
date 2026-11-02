@@ -1,0 +1,24 @@
+schema_version: "1.1"
+name: org-usage-report
+tags: [report-status, read-only]
+runs: 1
+execution:
+  max_turns: 8
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "How did the teams in my Minions organization do over the last 30 days? Report it only — do not answer, approve, merge, pause, or change anything."
+graders:
+  - name: uses-usage-report
+    type: tool_used
+    tool: mcp__minions__get_usage_report
+    min: 1
+  - name: no-merge
+    type: tool_used
+    tool: mcp__minions__merge_task
+    min: 0
+    max: 0
+  - name: no-pause
+    type: tool_used
+    tool: mcp__minions__pause_task
+    min: 0
+    max: 0

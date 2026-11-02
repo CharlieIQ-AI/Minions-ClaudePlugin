@@ -10,12 +10,13 @@ Never put a credential in a prompt or transcript.
 
 The plugin installs a `minions` MCP server connection for Claude Code, the `minions` skill
 (`skills/minions/SKILL.md` — filing work, clearing blocked work, reporting status, diagnosing runs,
-setting up a repository), plus SessionStart version-check and PreToolUse secret-reference and local-attachment upload hooks in `hooks/hooks.json`, and sixteen slash commands:
+setting up a repository), plus SessionStart version-check and PreToolUse secret-reference and local-attachment upload hooks in `hooks/hooks.json`, and eighteen slash commands:
 
 - `/task` — File a work request with Minions
 - `/unblock` — Review and unblock Minions work
 - `/status` — Report Minions work status
 - `/runs` — Report how Minions runs are looking
+- `/reports` — Report Minions usage and analytics numbers
 - `/setup-repo` — Set up a repository for Minions
 - `/spec` — File an already-written spec with Minions verbatim
 - `/why` — Explain what happened on a Minions ticket
