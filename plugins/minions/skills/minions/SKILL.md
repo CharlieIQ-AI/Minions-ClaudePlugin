@@ -128,6 +128,15 @@ For `create_task`, `adopt_ticket`, and
 tracker `url` as the tracker link and report it second. For a feature, include the feature link and
 each child story's `minionsUrl` when reporting the created result.
 
+### Change a task's primary repository
+
+`get_task` reports the task's `primaryRepo`. When the user explicitly chooses a different writable
+repository for a multi-repo task, call `set_task_primary_repo` with the task `key` and `repoLabel`.
+It uses the same task-action permission, merge-stage lock, and audit trail as changing repository
+execution order. It refuses context repositories and any repository that is not already a writable
+entry; it never adds, removes, or changes a repository's role. Report the returned result and any
+refusal instead of retrying with a different repository.
+
 ### Product feedback
 
 Use `submit_product_feedback`, `list_my_product_feedback`, `get_product_feedback`, and
@@ -410,7 +419,7 @@ steps. On `in_progress`, another start-over or undo is already running; wait and
 
 ## Report status
 
-Status reporting is read-only. Use `list_my_tasks` for the caller's own work and `list_tasks` for a request about someone else's work or a repo's work (pass `owner`/`creator` as the email the user supplies, or `"me"`; pass `repo` from `list_repos` when the user names one). When a result carries a non-null `nextCursor` and the user asks for more, call the same tool again with that `cursor`.
+Status reporting is read-only. Use `list_my_tasks` for the caller's own work and `list_tasks` for a request about someone else's work or a repo's work (pass `owner`/`creator` as the email the user supplies, or `"me"`; pass `repo` from `list_repos` when the user names one). For a "created since" or "created before" question, pass `createdAfter` or `createdBefore` to the list tool instead of paging and filtering client-side. When age matters, report each result's `createdAt`. When a result carries a non-null `nextCursor` and the user asks for more, call the same tool again with that `cursor`.
 
 ### Typed tool results
 
@@ -443,7 +452,7 @@ For fleet-level questions — "how are the runs looking", "what is running", "wh
 
 ### Read reports
 
-For usage and analytics questions — "how did my teams do this month", "who shipped the most", "what is the AI spend" — read the report tool that matches the page, once, instead of counting tasks yourself. Organization admins (and super admins in the active organization) have `get_usage_report` (tasks, lines, working time and cost per team and member; `teamId` or `userId` to drill in), `get_weekly_report` (tasks per developer per week), `get_leaderboard` (commits, PRs, reviews, net lines and Minions adoption per developer, read from each row's `shown` figures; `developerKey` for one person) and `get_work_themes` (what effort went toward). Super admins also have `get_ai_cost_report` (AI spend by organization with the page's drill-downs), `get_compute_costs`, `get_first_mile`, `get_task_creation_report` and `get_creation_paths`. Ranges follow each page: `range` 7/30/90 days or `from`/`to` for usage, creation paths and compute costs; `period` 30d/60d/90d or `since`/`until` for the leaderboard; `weeks` for weekly and task creation (task creation also `from`/`to`); `from`/`to` for AI cost; First Mile's own presets; none for work themes. Report the window and figures as returned and quote the `definitions` when the user asks what counts: a task excludes drafts, removed work, features (counted through their tasks), untriaged bug reports and unstarted follow-ups; credit goes to the owner, else the creator; shipped means the code merged. Cost comes back null for someone who cannot view cost; say so rather than estimating it. When a report tool refuses, relay its error as the answer; never work around it with other tools.
+For usage and analytics questions — "how did my teams do this month", "who shipped the most", "what is the AI spend" — read the report tool that matches the page, once, instead of counting tasks yourself. Organization admins (and super admins in the active organization) have `get_usage_report` (tasks, lines, working time and cost per team and member; `teamId` or `userId` to drill in), `get_weekly_report` (tasks per developer per week), `get_leaderboard` (commits, PRs, reviews, net lines and Minions adoption per developer, read from each row's `shown` figures; `developerKey` for one person) and `get_work_themes` (what effort went toward). Super admins also have `get_costs` (everything an organization costs: AI spend plus Fargate and EC2 hosts, with Shared overhead, a daily series and a host table; `orgId` for one organization's breakdown by role, host and repo), `get_ai_cost_report` (AI spend by organization with the page's drill-downs), `get_compute_costs`, `get_billable_lines` (billable lines against each contract's allotment, month by month, with overage), `get_first_mile`, `get_task_creation_report` and `get_creation_paths`. For "what does each org cost us", call `get_costs` rather than adding the AI and compute reports together. Ranges follow each page: `range` 7/30/90 days or `from`/`to` for usage, creation paths, costs and compute costs; `period` 30d/60d/90d or `since`/`until` for the leaderboard; `weeks` for weekly and task creation (task creation also `from`/`to`); `from`/`to` for AI cost; First Mile's own presets; none for work themes. Report the window and figures as returned and quote the `definitions` when the user asks what counts: a task excludes drafts, removed work, features (counted through their tasks), untriaged bug reports and unstarted follow-ups; credit goes to the owner, else the creator; shipped means the code merged; billable lines are counted when a task reaches Ready to Merge. Cost comes back null for someone who cannot view cost; say so rather than estimating it. When a report tool refuses, relay its error as the answer; never work around it with other tools.
 
 ## Diagnose a run
 
@@ -464,7 +473,8 @@ tries to clone it.
 1. Call `list_code_connections` to see which code providers the organization has connected.
 2. Call `list_provider_repos` for the chosen provider with that provider's scope
 (`githubInstallationId` / `gitlabGroupPath` / `bitbucketWorkspace` / `adoProject`, plus `adoOrgUrl`
-from `azureDevOpsConnections` when more than one Azure DevOps organization is connected). Narrow with
+from `azureDevOpsConnections` when more than one Azure DevOps organization is connected). For GitHub,
+pass `refresh: true` when the cached listing may be stale. Narrow with
 `query` when `truncated` is true rather than asking for a larger page. A row with `alreadyAdded`
 is already registered: report its `label` instead of offering to add it again.
 3. Read the result honestly. `connected: false` means connect the provider first. A non-null
@@ -482,8 +492,11 @@ until it completes.
 
 Call the read-only `get_repo_setup` tool for the selected repo and use its live result. Do not
 write repository settings until the user explicitly confirms the specific changes. After confirmation,
-walk `add_repo` → `set_repo_settings` (stack label first, from `list_stack_labels`) → `set_repo_branches` → `set_repo_scripts`
-(MIN-2958) → `set_repo_secret` → `get_repo_setup` to confirm `dispatchable`. After significant architectural changes, or when `get_repo_setup` shows a failed or skipped ingest, offer `ingest_repo` and call it only after the user confirms; it queues the background regeneration and reports its queue position. To remove a repository secret, call `list_repo_secrets`, confirm the exact secret list with the user, then call `delete_repo_secret`; check inherited organization secrets before deleting an override. Check each of the following:
+walk `add_repo` → `set_repo_settings` (stack label first, from `list_stack_labels`; `defaultBranch` is
+provider-verified and org-admin-only) → `set_repo_branches` → `set_repo_scripts`
+(MIN-2958) → `set_repo_secret` → `get_repo_setup` to confirm `dispatchable`. To remove a repository,
+confirm its exact label and call the destructive org-admin-only `delete_repo` with the same
+`confirmLabel`; it cannot be undone. After significant architectural changes, or when `get_repo_setup` shows a failed or skipped ingest, offer `ingest_repo` and call it only after the user confirms; it queues the background regeneration and reports its queue position. To remove a repository secret, call `list_repo_secrets`, confirm the exact secret list with the user, then call `delete_repo_secret`; check inherited organization secrets before deleting an override. Check each of the following:
 
 1. **Stack label gate:** `stack_label_has_image` must be true. A repo without a stack label mapped
 to a runner image is not dispatchable; do not promise that work will run until this is fixed in
@@ -497,7 +510,7 @@ Task environments are named sets of vault-backed or safe plain variables. Use `l
 
 3. **Build Script:** treat the Build Script as a list of checks to run, not as an installer.
 Keep installation and verification separate when explaining setup.
-4. **Live environment:** when the organization feature is enabled and a Docker host is registered, use `set_repo_settings.liveEnvironment` to choose whether tasks start the repository's compose file, its services, and its host. `get_repo_setup` reports the saved live-environment settings.
+4. **Live environment:** when the organization feature is enabled and a Docker host is registered, use `set_repo_settings.liveEnvironment` to choose whether tasks start the repository's compose file, its services, and its host. `get_repo_setup` reports the saved live-environment settings. Once a Docker host exists, offer `detect_live_env_settings` only after the user confirms; it queues a detection job. Then read `get_repo_setup.live_environment.detection`, show the proposal and warnings to the user, and apply it with `set_repo_settings.liveEnvironment` only when they agree. An `in_flight` refusal means a detection is already running.
 
 5. **CI auto-fix:** read the live `auto_fix_ci` setting and `ci_fix_confirm_threshold`. Explain
 whether CI auto-fix is enabled, what threshold is configured for asking for confirmation, and that
@@ -510,7 +523,12 @@ out of date, and call it only after the user confirms; it queues the check. Turn
 `set_repo_settings` and `visualEvidenceEnabled` only after the user confirms and only while the latest
 check passed; the server refuses it otherwise. A check that reports the stack is not supported
 cannot be fixed by retrying.
-7. **MINIONS.md:** when drafting repository guidance, put anything that applies to every agent
+7. **Readiness:** `get_repo_setup` reports `readiness_check` with the latest verdict, checked time,
+runner image, running flag and stage results. Offer `run_readiness_check` when no check has run or
+the result is stale, and call it only after the user confirms; it queues the check. A `not_ready`
+verdict is information for setup decisions, not a dispatch gate, and a running or queued check must
+not be submitted again.
+8. **MINIONS.md:** when drafting repository guidance, put anything that applies to every agent
 under a `General` section, then add a distinct section per role only where the guidance differs:
 `Planner`, `Plan Reviewer`, `Builder`, `Test Author`, and `Reviewer`. `General` reaches every role,
 including one with no section of its own. Do not rely on text above the first heading instead: that
