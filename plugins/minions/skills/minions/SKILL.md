@@ -27,7 +27,7 @@ pause, or delete anything without the user's explicit decision. Reading status a
 safe; any tool that changes work requires the user's decision immediately before the action.
 This rule covers every slash command in `commands/`, including `/spec`, `/why`, `/fix-ci`,
 `/answer`, `/merge`, `/depends`, `/pause`, `/resume`, `/delete`, `/restore`, `/unblock`, and `/bugs`; call a mutating tool
-(`create_task`, `resolve_ci_fix`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `accept_recommended_answers`, `merge_task`, `merge_feature`, `set_dependency`, `set_task_owner`,
+(`create_task`, `resolve_ci_fix`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `accept_recommended_answers`, `merge_task`, `merge_feature`, `set_dependency`, `set_task_owner`, `set_task_destination_branch`,
 `pause_task`, `resume_task`, `delete_task`, `restore_task`, `delete_feature`, `restore_feature`, `switch_org`, `dismiss_tracker_sync`, or `sign_off_task`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
 
 On an error result (`isError: true`), parse `content[0].text` as JSON and read `error.code` first; branch on it: `not_found` means say the task is not visible to this connection; `permission_denied` means say so and stop; `not_in_window`, `already_merged`, `stale_plan_version`, `ambiguous`, `in_progress`, `idempotency_conflict`, and `already_removed` mean relay the message and follow its instruction; `partial_failure` means list `details.steps`; an error result never carries `structuredContent`; `error.message` is the text to relay.
@@ -137,6 +137,16 @@ execution order. It refuses context repositories and any repository that is not 
 entry; it never adds, removes, or changes a repository's role. Report the returned result and any
 refusal instead of retrying with a different repository.
 
+### Change a task's Merge into branch
+
+When the user explicitly names a new **Merge into** branch for a task, call
+`set_task_destination_branch` with the task `key`, `mergeIntoBranch`, and, on a multi-repo task,
+the `repoLabel` to change (it defaults to the primary repository). The branch must be one the
+repository tracks (`list_repos` `branches`); an open pull request is retargeted first and nothing is
+stored when the provider refuses. It is refused from Ready to Merge onward and for a feature child,
+whose destination is the feature branch. Build from cannot be changed. Report the result or the
+refusal as returned.
+
 ### Product feedback
 
 Use `submit_product_feedback`, `list_my_product_feedback`, `get_product_feedback`, and
@@ -221,6 +231,12 @@ is a bug, and especially when they have no access to the code themselves.
   the effective branch resolved at creation, and `commitSha` is the commit the latest completed
   code-aware turn read (null until one has).
 - One turn at a time per thread: `ask_research` returns `in_progress` if one is already running.
+- `set_research_linked_work` adds or removes existing tasks and features on a thread by tracker key.
+  Pass `threadId` with `add` and/or `remove` arrays; every added key must be visible to you or the
+  whole call returns `not_found`, and a thread can have at most 10 linked items. The response shows
+  visible `linkedWork` and `hiddenLinkedCount` without exposing keys or titles you cannot see.
+  `list_research_threads` shows only each link's kind, key and title; read the thread with
+  `get_research_thread` for their state and runs.
 
 ### Turning research into work
 
@@ -333,10 +349,13 @@ After three triage runs, only the two named options can be accepted.
 ### Change finished work
 
 Call `get_task` and check `canRequestChanges` before changing finished work. If it is false, report
-the task's current status and call nothing. If it is true, explain that the task will return to Planning
-with the user's instructions, obtain the user's explicit decision, and then call `request_changes`.
+the task's current status and call nothing. If it is true, ask where the change should go: back to
+Planning, so the spec is amended and re-reviewed (the default), or straight to the Builder with
+`route: "build"`, for a change that needs no new spec such as fixing CI or addressing PR comments,
+which skips the Planner and Plan Reviewer runs. Obtain the user's explicit decision, and then call
+`request_changes`; its `status` says where the task went.
 `get_task`'s `runInFlight` says whether an agent run is in progress; when it is true, `request_changes`
-can use `cancelRun: true` to stop that run before replanning.
+can use `cancelRun: true` to stop that run first.
 `reviewCycleLimit` is optional when the user wants to raise the per-ticket review-cycle cap.
 
 Use `add_task_note` when the user wants to tell the agents something without stopping or sending the task back; it needs no confirmation beyond the user having stated the note.
