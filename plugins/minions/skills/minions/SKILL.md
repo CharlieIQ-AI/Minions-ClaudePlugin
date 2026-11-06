@@ -60,14 +60,19 @@ Call `list_repos` **first**, before asking the user to choose filing options. Us
 source of truth:
 
 - Ask the user to choose a repo from the returned repositories, or up to five repos for one
-  multi-repo task.
+  multi-repo task. Ask whether any chosen repo is only for the agents to read (read only): it gets
+  no branch, pull request or merge.
 - For each chosen repo, offer only branches in that repo's `branches` list, including its default
   branch when it is present. Ask separately for **Build from** (the fork point) and **Merge into**
   (the destination); "base branch" is ambiguous and must be clarified with the user.
 - For one repo, call `create_task` with `repoId`, `mergeIntoBranch`, and `buildFromBranch`. For
-  2–5 repos, pass `repos` instead, one entry per repo with its own `repoId`, `mergeIntoBranch`,
-  and optional `buildFromBranch`; the first entry is the primary repo. `repos` refuses fewer than
-  two entries and cannot be combined with `repoId` or the top-level branch fields.
+  several repos, pass `repos` instead (1–5 entries), one entry per repo with its own `repoId`,
+  `mergeIntoBranch`, optional `buildFromBranch`, and optional `role`. A read-only repo is an entry
+  with `role: "context"` and only `buildFromBranch`, the branch it is read at; ask for that branch
+  only, since a Merge into on it is refused. At least one entry must be writable. The primary repo
+  is the first writable entry; pass `primaryRepoId` to choose another writable entry. `repos`
+  cannot be combined with `repoId` or the top-level branch fields. `adopt_ticket` and
+  `create_feature` take the same `repos` entries and roles.
 - Relay any returned `warnings` to the user. A multi-repo task builds on the primary repo's runner
   image, so a warning names repos whose image differs; creation still succeeded.
 - Ask the user whether to enable auto-merge, using the repo's live auto-merge settings, and read
@@ -292,6 +297,7 @@ and ask for the user's explicit decision before calling it:
 | Hand-back to the requester | `resolve_handback` |
 | Proposed feature split accepted as a feature | Show the proposed breakdown, ask for the user's decision, then call `convert_to_feature` (optionally with edited `waves` and required `autoMerge`) |
 | Proposed feature split that should remain one task | `keep_single_task` — call it when the user rejects the breakdown |
+| Task in a feature found too large for one build (a child split handback) | Show `handback.childSplit.waves` (each proposed task's title and acceptance criteria), ask the user, then call `resolve_child_split` with `decision` `"accept"` to split it or `"keep"` to keep it as one ticket. `resolve_handback` refuses this blocker |
 | Merge Problem | `merge_task`, but only after the underlying cause is fixed |
 | Rework requested by review | `request_changes` |
 | Feature review needs another attempt | `retry_feature_review` |
@@ -432,7 +438,7 @@ steps. On `in_progress`, another start-over or undo is already running; wait and
 - Pass `expectedPlanVersion` from the last `get_feature` on every `add_feature_wave`.
 - For caller-authored features, use either `planDocument` or 1–10 `waves` entries; set each wave's `verbatimSpec` independently when its text must be preserved as written.
 - When feature-sized work already has a tracker ticket, call `preview_ticket` and confirm the ticket with the user, then call `create_feature` with `existingTicket` set to it: the ticket becomes the feature's epic, and no new epic is created. For an epic, ask which of `preview_ticket`'s `children` to include and whether any has its own spec. Give each included child a wave with its `childKey`: omit `description` to use the child's own text, or pass the spec as `description` with `verbatimSpec: true`. Waves without `childKey` create new tickets. Tell the user about every key in the returned `untouchedChildren`: those children were left out of the feature.
-- For a feature across several repos, pass `create_feature` a `repos` array (2–5 entries, each with its own Merge into and Build from branches, the first the primary) instead of `repoId`, and give each wave the `repos` labels it changes; ask the user which repos each wave changes when it is not clear. With `existingTicket` on a GitHub issue, the issue's own repo must be the first entry.
+- For a feature across several repos, pass `create_feature` a `repos` array (1–5 entries, each with its own Merge into and Build from branches, the first writable entry the primary) instead of `repoId`, and give each wave the `repos` labels it changes; ask the user which repos each wave changes when it is not clear. A repo the user wants only read is an entry with `role: "context"` and only `buildFromBranch`: it stays read only for every wave, now and later (`get_feature` lists it in `readOnlyRepos`), so never name it in a wave's `repos`. With `existingTicket` on a GitHub issue, the issue's own repo must be the first repo the feature changes (its first writable entry). The result's `repos[]` gives each repo's `role`, and `readOnly: true` on the ones marked read only.
 - To bring a child the feature left out into it later, call `add_feature_wave` with a wave whose `childKey` is that child (from `preview_ticket` on the feature's epic key), with the same description rules as above.
 - Land with `merge_feature` only after the user's explicit decision.
 
