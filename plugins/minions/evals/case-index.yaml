@@ -48,3 +48,4 @@ cases:
   - 39-spec-asks-for-existing-ticket
   - 40-feature-on-existing-epic
   - 41-org-usage-report
+  - 42-answer-on-someone-elses-task

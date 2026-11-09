@@ -1,0 +1,26 @@
+schema_version: "1.1"
+name: answer-on-someone-elses-task
+tags: [clear-blocked-work, authorization]
+description: A named task's clarification can be answered even when someone else owns it.
+runs: 1
+execution:
+  max_turns: 10
+  timeout_seconds: 180
+  allowed_tools: [Skill]
+  prompt: "Answer the open question on DEMO-50, which is owned by our service account. Use the first option."
+graders:
+  - name: answers-clarification
+    type: tool_used
+    tool: mcp__minions__answer_clarification
+    min: 1
+  - name: looks-up-named-ticket
+    type: tool_used
+    tool: mcp__minions__list_blockers
+    input_match: '"key"\\s*:\\s*"DEMO-50"'
+    min: 1
+  - name: no-ownership-refusal
+    type: regex
+    pattern: 'owner.*not you|can''t act|cannot act'
+    flags: i
+    target: last_message
+    match: not_contains
