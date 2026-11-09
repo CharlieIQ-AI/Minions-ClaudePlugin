@@ -521,7 +521,7 @@ Call the read-only `get_repo_setup` tool for the selected repo and use its live 
 write repository settings until the user explicitly confirms the specific changes. After confirmation,
 walk `add_repo` → `set_repo_settings` (stack label first, from `list_stack_labels`; `defaultBranch` is
 provider-verified and org-admin-only) → `set_repo_branches` → `set_repo_scripts`
-(MIN-2958; read the current text with `get_repo_scripts` before replacing it) → `set_repo_secret` → `get_repo_setup` to confirm `dispatchable`. To remove a repository,
+(MIN-2958; read the current text with `get_repo_scripts` before replacing it) → `set_repo_secret` → `get_repo_setup` to confirm `dispatchable`. Use `get_external_policy` with View access to read repository policy, or as any member to read organization defaults; use `set_external_policy_item` with Edit access on a repository, or as an organization admin for defaults. Use `scan_external_policy` with Edit access to queue discovery for a GitHub repository. To remove a repository,
 confirm its exact label and call the destructive org-admin-only `delete_repo` with the same
 `confirmLabel`; it cannot be undone. After significant architectural changes, or when `get_repo_setup` shows a failed or skipped ingest, offer `ingest_repo` and call it only after the user confirms; it queues the background regeneration and reports its queue position. To remove a repository secret, call `list_repo_secrets`, confirm the exact secret list with the user, then call `delete_repo_secret`; check inherited organization secrets before deleting an override. Check each of the following:
 
