@@ -90,7 +90,7 @@ source of truth:
   name. Never pick a required value on the user's behalf. When `stale` is true, say the options may
   be out of date. After creating, read `resolved.customFields` back with the branches, naming any
   value whose `source` is `default`.
-- Creation requires an assigned tracker board; `board` shows it. If `board` is null, ask the user to assign one before filing (with `set_repo_board`, using a board id from `list_tracker_boards`), or offer `trackerBoard: "none"` for an internal-only task on an Optional-mode repo.
+- Creation requires an assigned tracker board; `board` shows it. If `board` is null, ask the user to assign one before filing (with `set_repo_board`, using a board id from `list_tracker_boards`), or offer `trackerBoard: "none"` for an internal-only task on an Optional-mode repo. When `trackerBoard` is omitted, the user's Default project decides: if it is Internal, work on such a repo is internal-only and the result carries `trackingNote`; tell the user, and pass `trackerBoard: "board"` if they want a tracker ticket instead.
 
 Do not write repository names, branch names, or organization names into a prompt or example.
 Render the values from `list_repos` at run time. If the requested repo or branch is not in the
