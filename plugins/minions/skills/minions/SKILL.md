@@ -466,6 +466,7 @@ Status reporting is read-only. Use the narrowest read needed:
 - Use `list_my_tasks` row `url` when reporting a task from that list.
 - Use `get_task_activity` for the lifecycle and action history.
 - Use `get_test_runs` for recorded test-container commands and their output; pass `jobId` when inspecting one run.
+- Use `get_live_env_runs` for every live-environment start, newest first; pass `runId` when you need that start's full stored log. An inaccessible task or unknown run is not found.
 - Use `get_job_log` **or** `get_task_comments` only when a run failed and its details are needed.
 
 Do not use status checks as a pretext to change a task. A run marked `retrying` or `incomplete` is
@@ -551,10 +552,11 @@ out of date, and call it only after the user confirms; it queues the check. Turn
 check passed; the server refuses it otherwise. A check that reports the stack is not supported
 cannot be fixed by retrying.
 7. **Readiness:** `get_repo_setup` reports `readiness_check` with the latest verdict, checked time,
-runner image, running flag and stage results. Offer `run_readiness_check` when no check has run or
-the result is stale, and call it only after the user confirms; it queues the check. A `not_ready`
-verdict is information for setup decisions, not a dispatch gate, and a running or queued check must
-not be submitted again.
+runner image, running flag and stage results. A failed stage includes its stored `command` and
+`excerpt`; use `get_readiness_check_log` with `{ repoLabel }` for the full stored log. Offer
+`run_readiness_check` when no check has run or the result is stale, and call it only after the user
+confirms; it queues the check. A `not_ready` verdict is information for setup decisions, not a
+dispatch gate, and a running or queued check must not be submitted again.
 8. **MINIONS.md:** when drafting repository guidance, put anything that applies to every agent
 under a `General` section, then add a distinct section per role only where the guidance differs:
 `Planner`, `Plan Reviewer`, `Builder`, `Test Author`, and `Reviewer`. `General` reaches every role,
