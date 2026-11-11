@@ -1,0 +1,25 @@
+schema_version: "1.1"
+name: watch-task-done
+tags: [watch-tasks, read-only]
+description: A finished watched task gets one line, with no notification and no follow-up calls.
+runs: 1
+execution:
+  max_turns: 4
+  timeout_seconds: 120
+  allowed_tools: [Skill, PushNotification]
+  prompt: "[Background event from the Minions task watch monitor]\nminions-watch {\"event\": \"done\", \"key\": \"DEMO-43\", \"title\": \"Rename the export button\", \"status\": \"Done\", \"summary\": \"Merged.\"}"
+graders:
+  - name: no-notification
+    type: tool_used
+    tool: PushNotification
+    min: 0
+    max: 0
+  - name: no-blocker-read
+    type: tool_used
+    tool: mcp__minions__list_blockers
+    min: 0
+    max: 0
+  - name: says-it-finished
+    type: regex
+    pattern: "DEMO-43"
+    target: last_message

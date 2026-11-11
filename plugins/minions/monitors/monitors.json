@@ -1,0 +1,7 @@
+[
+  {
+    "name": "task-watch",
+    "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/watch-poller.sh\" \"${CLAUDE_PLUGIN_DATA}\"",
+    "description": "Minions tasks you are watching that need you"
+  }
+]

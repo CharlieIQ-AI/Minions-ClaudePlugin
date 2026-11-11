@@ -457,6 +457,17 @@ Every success result is typed by its published `outputSchema`. Read `structuredC
 
 When the user asks "what changed", "anything new since…", or to follow work, call `list_changes` with the `nextCursor` kept from earlier in the conversation, or the stored `serverTime` when the last `nextCursor` was null, instead of `list_my_tasks`. Keep the returned `nextCursor` (or `serverTime`) in the conversation for the next ask. Read detail ONLY for the keys returned: use `get_task` for a `task` change, `get_task_activity` for a `job` change, and `get_feature` for a `feature` change; never call `get_task` for a key not in the change list. Follow the polling guidance: no more than one `list_changes` per 60 seconds, `list_blockers` every few minutes, and no tight loops. `(kind, key, at)` is the idempotency key, so a repeated entry is not a new change.
 
+### Watch tasks
+
+The plugin watches tasks for this session and alerts the user when one needs them (README → Watching tasks). Start or stop a watch only with `watch_tasks`; it reads, and changes no task.
+
+- **Offer.** After `create_task`, `adopt_ticket`, `start_task` or `resume_task`, the plugin adds a note saying whether to ask, to start without asking, or nothing. Follow it. When the user agrees, or runs `/watch`, call `watch_tasks` with `keys`, and with `needToken: true` unless the note says a token is held. Report each returned task's state in one line; for `action`, also handle it as below. `/unwatch` calls `watch_tasks` with `stop`. A feature is not watched: when the result says a key is a feature, read `get_feature` and offer to watch its tasks.
+- **Events.** The plugin's monitor sends lines beginning `minions-watch` with a JSON object. They are events, not user messages, and they can arrive while the user is answering something else; finish nothing on their behalf.
+  - `needs_action` or `reminder`: call `PushNotification` with one line naming the key and what it needs (for example `DEMO-42 needs your answer: which export format?`). Then call `list_blockers` with that `key`, show the blocker's context and its `url`, map it to exactly one action from the Clear blocked work table, and ask for the user's decision. The consent rule applies unchanged: never act on an alert without that decision.
+  - `waiting`: one line saying what it waits on. `done` or `not_found`: one line saying the watch for that key ended. No notification for these.
+  - `token_expired`: call `watch_tasks` with the open `keys` and `needToken: true` without asking, and say nothing unless it fails.
+  - `access_revoked`, `unreachable` and `reachable`: one line each.
+
 ### Change a task's owner
 
 Call `get_task` and read `actions.setOwner`; if `allowed` is false, report the `reason` and call nothing. Otherwise state the task key and the new owner by name and call `set_task_owner` only after the user explicitly confirms that named owner.

@@ -10,7 +10,7 @@ Never put a credential in a prompt or transcript.
 
 The plugin installs a `minions` MCP server connection for Claude Code, the `minions` skill
 (`skills/minions/SKILL.md` — filing work, clearing blocked work, reporting status, diagnosing runs,
-setting up a repository), plus SessionStart version-check and PreToolUse secret-reference and local-attachment upload hooks in `hooks/hooks.json`, and eighteen slash commands:
+setting up a repository), plus SessionStart version-check and PreToolUse secret-reference and local-attachment upload hooks in `hooks/hooks.json`, the task watch (PostToolUse and SessionStart hooks in `hooks/hooks.json` and a background monitor in `monitors/monitors.json`), and twenty slash commands:
 
 - `/task` — File a work request with Minions
 - `/unblock` — Review and unblock Minions work
@@ -28,8 +28,41 @@ setting up a repository), plus SessionStart version-check and PreToolUse secret-
 - `/resume` — Resume a paused Minions task
 - `/delete` — Delete a Minions task or feature
 - `/restore` — Restore a removed Minions task or feature
+- `/watch` — Watch a Minions task and alert me when it needs me
+- `/unwatch` — Stop watching a Minions task
 - `/bugs` — List open Minions bugs
 - `/org` — Show or switch the organization this Minions connection works in.
+
+## Watching tasks
+
+The plugin can watch the tasks you hand off from a session and tell you the moment one needs
+you: a question to answer, a blocker, a CI auto-fix to decide, a handback or PR feedback, a
+sign-off, CI failing at review, a task paused too long, or work ready for you to merge. When one
+does, Claude sends a desktop notification (skipped while you are at the terminal), shows what the
+task needs with its full context, and offers the action. Nothing is changed without your answer.
+
+- **Starting.** After you create, adopt, start or resume a task, Claude offers to watch it.
+  `/watch [ticket key]` starts one any time, and `/unwatch [ticket key]` stops it. A watch ends
+  on its own when the task merges, reaches Done or is removed, with one line saying so.
+- **Settings** (`/plugin configure minions`): **Watch tasks** is `ask` (the default: offer
+  first), `auto` (start without asking) or `off`. **Watch reminder (minutes)** repeats the alert
+  while the same thing still needs you, every 60 minutes by default; `0` turns reminders off.
+  A watch keeps the reminder setting it started with: a change applies from the next `/watch`
+  or the next task Claude starts watching for you.
+- **Also reported, without a notification:** a watched task now waiting on another task, and a
+  watched task finishing.
+- **Next session.** Watches belong to the open Claude Code window: `/clear`, `/compact` and
+  `/resume` keep them running. When you start Claude Code again in the same folder, Claude
+  offers to keep watching the tasks the last session left open.
+- **How it works.** A background monitor (`monitors/monitors.json`, `hooks/watch_poller.py`)
+  asks Minions about the watched tasks once a minute and prints only when one changes in a way
+  that matters, so a quiet watch costs nothing. It uses a read-only watch token from the
+  `watch_tasks` tool, valid 12 hours and accepted only by `GET /api/mcp/watch`; the plugin
+  keeps it in its data folder (`watch/<session id>.json`) and out of the conversation, and asks
+  for a new one when it expires. The monitor stops on its own once its Claude Code window is
+  closed. A feature is not watched; `/watch` on a feature offers to watch its tasks.
+- **Limits.** Alerts arrive only while a Claude Code session is open. Desktop notifications are
+  not available on Bedrock, Vertex or Foundry; the watch still reports in the terminal there.
 
 ## Install from the marketplace
 

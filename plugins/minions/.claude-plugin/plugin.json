@@ -4,8 +4,29 @@
   "author": {
     "name": "CharlieIQ"
   },
-  "version": "0.87.0",
+  "version": "0.89.0",
   "experimental": {
     "evals": "evals"
+  },
+  "userConfig": {
+    "watch_mode": {
+      "type": "string",
+      "title": "Watch tasks",
+      "description": "When you create, adopt, start or resume a task here: ask whether to watch it for things that need you (ask), start watching without asking (auto), or do nothing (off). /watch always works.",
+      "options": [
+        "ask",
+        "auto",
+        "off"
+      ],
+      "default": "ask"
+    },
+    "watch_reminder_minutes": {
+      "type": "number",
+      "title": "Watch reminder (minutes)",
+      "description": "Remind you again, with a desktop notification, while a watched task still needs you after this many minutes. 0 turns reminders off.",
+      "default": 60,
+      "min": 0,
+      "max": 1440
+    }
   }
 }
