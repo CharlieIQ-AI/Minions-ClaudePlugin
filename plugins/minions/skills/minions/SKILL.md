@@ -62,14 +62,14 @@ organizations may ask to work in another one:
 Call `list_repos` **first**, before asking the user to choose filing options. Use its result as the
 source of truth:
 
-- Ask the user to choose a repo from the returned repositories, or up to five repos for one
+- Ask the user to choose a repo from the returned repositories, or up to ten repos for one
   multi-repo task. Ask whether any chosen repo is only for the agents to read (read only): it gets
   no branch, pull request or merge.
 - For each chosen repo, offer only branches in that repo's `branches` list, including its default
   branch when it is present. Ask separately for **Build from** (the fork point) and **Merge into**
   (the destination); "base branch" is ambiguous and must be clarified with the user.
 - For one repo, call `create_task` with `repoId`, `mergeIntoBranch`, and `buildFromBranch`. For
-  several repos, pass `repos` instead (1–5 entries), one entry per repo with its own `repoId`,
+  several repos, pass `repos` instead (1–10 entries), one entry per repo with its own `repoId`,
   `mergeIntoBranch`, optional `buildFromBranch`, and optional `role`. A read-only repo is an entry
   with `role: "context"` and only `buildFromBranch`, the branch it is read at; ask for that branch
   only, since a Merge into on it is refused. At least one entry must be writable. The primary repo
@@ -219,7 +219,7 @@ answers with `file:line` citations. It is READ-ONLY — it never changes anythin
 user wants to understand how something works, what is and is not covered, or whether a behaviour
 is a bug, and especially when they have no access to the code themselves.
 
-- `start_research` opens a thread across up to 5 distinct repositories. Pass the question and the
+- `start_research` opens a thread across up to 10 distinct repositories. Pass the question and the
   `repoLabels` to investigate (from `list_repos`), plus `refs` when each repository should be read
   at a chosen branch (`{repoLabel: branch}`). `ref` is the primary repository's compatibility
   shorthand; do not pass both `ref` and `refs`. `ref` and `refs` carry only branch overrides, so
@@ -440,7 +440,7 @@ steps. On `in_progress`, another start-over or undo is already running; wait and
 - Before `add_feature_wave` on a board with custom fields, call `list_board_fields` and ask the user for every required field, then pass the answers as `customFields`; read `resolved.customFields` back to report the values applied.
 - For caller-authored features, use either `planDocument` or 1–10 `waves` entries; set each wave's `verbatimSpec` independently when its text must be preserved as written.
 - When feature-sized work already has a tracker ticket, call `preview_ticket` and confirm the ticket with the user, then call `create_feature` with `existingTicket` set to it: the ticket becomes the feature's epic, and no new epic is created. For an epic, ask which of `preview_ticket`'s `children` to include and whether any has its own spec. Give each included child a wave with its `childKey`: omit `description` to use the child's own text, or pass the spec as `description` with `verbatimSpec: true`. Waves without `childKey` create new tickets. Tell the user about every key in the returned `untouchedChildren`: those children were left out of the feature.
-- For a feature across several repos, pass `create_feature` a `repos` array (1–5 entries, each with its own Merge into and Build from branches, the first writable entry the primary) instead of `repoId`, and give each wave the `repos` labels it changes; ask the user which repos each wave changes when it is not clear. A repo the user wants only read is an entry with `role: "context"` and only `buildFromBranch`: it stays read only for every wave, now and later (`get_feature` lists it in `readOnlyRepos`), so never name it in a wave's `repos`. With `existingTicket` on a GitHub issue, the issue's own repo must be the first repo the feature changes (its first writable entry). The result's `repos[]` gives each repo's `role`, and `readOnly: true` on the ones marked read only.
+- For a feature across several repos, pass `create_feature` a `repos` array (1–10 entries, each with its own Merge into and Build from branches, the first writable entry the primary) instead of `repoId`, and give each wave the `repos` labels it changes; ask the user which repos each wave changes when it is not clear. A repo the user wants only read is an entry with `role: "context"` and only `buildFromBranch`: it stays read only for every wave, now and later (`get_feature` lists it in `readOnlyRepos`), so never name it in a wave's `repos`. With `existingTicket` on a GitHub issue, the issue's own repo must be the first repo the feature changes (its first writable entry). The result's `repos[]` gives each repo's `role`, and `readOnly: true` on the ones marked read only.
 - To bring a child the feature left out into it later, call `add_feature_wave` with a wave whose `childKey` is that child (from `preview_ticket` on the feature's epic key), with the same description rules as above.
 - To change automatic merging on existing work, call `set_wave_auto_merge` with a feature epic key to update the feature and every unfinished wave, or with a feature-child key to update only that wave. Pass the requested `enabled` value, obtain the user's explicit consent immediately before calling it, and report the returned `waveAutoMerge`, `changed`, and `blocked` values; finished waves and features are refused.
 - Land with `merge_feature` only after the user's explicit decision.
