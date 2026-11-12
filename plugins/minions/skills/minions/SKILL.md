@@ -27,7 +27,7 @@ pause, or delete anything without the user's explicit decision. Reading status a
 safe; any tool that changes work requires the user's decision immediately before the action.
 This rule covers every slash command in `commands/`, including `/spec`, `/why`, `/fix-ci`,
 `/answer`, `/merge`, `/depends`, `/pause`, `/resume`, `/delete`, `/restore`, `/unblock`, and `/bugs`; call a mutating tool
-(`create_task`, `resolve_ci_fix`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `accept_recommended_answers`, `merge_task`, `merge_feature`, `set_dependency`, `set_wave_auto_merge`, `set_task_owner`, `set_task_destination_branch`, `set_user_department`,
+(`create_task`, `resolve_ci_fix`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `accept_recommended_answers`, `merge_task`, `merge_feature`, `set_dependency`, `set_wave_auto_merge`, `set_task_owner`, `set_task_destination_branch`, `set_task_source_branch`, `set_user_department`,
 `pause_task`, `resume_task`, `delete_task`, `restore_task`, `delete_feature`, `restore_feature`, `switch_org`, `dismiss_tracker_sync`, or `sign_off_task`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
 
 Task ownership does not limit answering, resolving a handback, resuming, merging, or requesting changes. Whether the user can act comes only from a tool refusal, an item's `action.canAct`, or `get_task.actions[*].reason`; report that reason verbatim. Never infer a restriction from `owner.isYou`.
@@ -152,7 +152,15 @@ When the user explicitly names a new **Merge into** branch for a task, call
 the `repoLabel` to change (it defaults to the primary repository). The branch must be one the
 repository tracks (`list_repos` `branches`); an open pull request is retargeted first and nothing is
 stored when the provider refuses. It is refused from Ready to Merge onward and for a feature child,
-whose destination is the feature branch. Build from cannot be changed. Report the result or the
+whose destination is the feature branch. Report the result or the refusal as returned.
+
+### Change a task's Build from branch
+
+When the user explicitly names a new **Build from** branch for a task, call
+`set_task_source_branch` with the task `key`, `buildFromBranch`, and, on a multi-repo task, the
+`repoLabel` to change (it defaults to the primary repository). The branch must be one the
+repository tracks (`list_repos` `branches`). It is refused once that repository has a task branch or
+pull request, from Ready to Merge onward, and for a feature child. Report the result or the
 refusal as returned.
 
 ### Product feedback
