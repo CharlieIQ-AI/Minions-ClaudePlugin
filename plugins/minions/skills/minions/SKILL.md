@@ -588,9 +588,20 @@ including one with no section of its own. Do not rely on text above the first he
 preamble ends at the first unrecognised heading, and a document title is an unrecognised heading, so
 guidance placed there is discarded. Keep the guidance grounded in that repository's actual commands
 and conventions; do not copy connection instructions into it.
+9. **Services:** when the repository's migrations or tests need a database or cache, ask which of
+Postgres, MySQL and Redis they need and which version, offering the choices in
+`get_repo_setup.service_version_options` (the one marked `default` is what runs when none is
+chosen). Set them with `set_repo_settings` `services` and `serviceVersions` only after the user
+confirms. Every run starts each service empty, with an `app` database and the `minions`/`minions`
+login on 127.0.0.1, so the schema and any test data must come from the repository: put its migrate
+and seed commands in the Startup Script with `set_repo_scripts` (for example
+`npx prisma migrate deploy && npx prisma db seed`, or `bin/rails db:prepare`). Variables the
+Startup Script exports do not reach later commands, so a framework that reads its own names
+(Laravel's `DB_*`) needs them written to a file it loads, such as `.env`. Then offer
+`run_readiness_check` to confirm the services start and the startup script migrates.
 
-Report missing setup facts and point the user to the web application for settings changes. This
-skill can explain and check setup, but it cannot edit repo settings.
+Report missing setup facts. Change a setting only through the tools named above, and only after the
+user confirms; point the user to the web application for any setting those tools do not cover.
 
 ## Update the plugin
 
