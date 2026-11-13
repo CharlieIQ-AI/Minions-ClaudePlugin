@@ -41,10 +41,17 @@ sign-off, CI failing at review, a task paused too long, or work ready for you to
 does, Claude sends a desktop notification (skipped while you are at the terminal), shows what the
 task needs with its full context, and offers the action. Nothing is changed without your answer.
 
-- **Starting.** After you create, adopt, start or resume a task, Claude offers to watch it.
-  `/watch [ticket key]` starts one any time, and `/unwatch [ticket key]` stops it. A watch ends
-  on its own when the task merges, reaches Done or is removed, with one line saying so.
-- **Settings** (`/plugin configure minions`): **Watch tasks** is `ask` (the default: offer
+**Watching is off by default.** Turn on **Background watch monitor** in
+`/plugin configure minions`; it applies from the next session, because the monitor that checks
+watched tasks starts with the session. While it is off the monitor checks nothing, Claude offers
+nothing, and `/watch` says watching is not available (`/unwatch` still works).
+
+- **Starting.** With the monitor on, after you create, adopt, start or resume a task, Claude
+  offers to watch it. `/watch [ticket key]` starts one any time, and `/unwatch [ticket key]`
+  stops it. A watch ends on its own when the task merges, reaches Done or is removed, with one
+  line saying so.
+- **Settings** (`/plugin configure minions`): **Background watch monitor** is `off` (the
+  default) or `on`, as above. **Watch tasks** is `ask` (the default: offer
   first), `auto` (start without asking) or `off`. **Watch reminder (minutes)** repeats the alert
   while the same thing still needs you, every 60 minutes by default; `0` turns reminders off.
   A watch keeps the reminder setting it started with: a change applies from the next `/watch`
@@ -60,7 +67,14 @@ task needs with its full context, and offers the action. Nothing is changed with
   `watch_tasks` tool, valid 12 hours and accepted only by `GET /api/mcp/watch`; the plugin
   keeps it in its data folder (`watch/<session id>.json`) and out of the conversation, and asks
   for a new one when it expires. The monitor stops on its own once its Claude Code window is
-  closed. A feature is not watched; `/watch` on a feature offers to watch its tasks.
+  closed. Claude Code starts it in every session and gives it no plugin settings, so the
+  SessionStart hook writes the Background watch monitor setting to `watch/pid-<process>.monitor`,
+  and the monitor polls only if that says `on`. Otherwise it stays idle, printing nothing, until
+  the window closes: a monitor that exits is reported to Claude, which would add a line to every
+  session. A polling monitor names itself in `watch/pid-<process>.running`, and Claude offers or
+  starts a watch only while that monitor is running (waiting up to 20 seconds for one that is still
+  starting when the session has just opened), so a setting turned on mid-session waits for the
+  next session. A feature is not watched; `/watch` on a feature offers to watch its tasks.
 - **Limits.** Alerts arrive only while a Claude Code session is open. Desktop notifications are
   not available on Bedrock, Vertex or Foundry; the watch still reports in the terminal there.
 

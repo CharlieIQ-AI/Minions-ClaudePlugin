@@ -4,11 +4,21 @@
   "author": {
     "name": "CharlieIQ"
   },
-  "version": "0.94.0",
+  "version": "0.96.0",
   "experimental": {
     "evals": "evals"
   },
   "userConfig": {
+    "watch_monitor": {
+      "type": "string",
+      "title": "Background watch monitor",
+      "description": "Run the background monitor that checks the tasks you watch and alerts you when one needs you. Off (the default): the monitor checks nothing, Claude does not offer to watch tasks, and /watch is turned off. A change applies from the next session.",
+      "options": [
+        "on",
+        "off"
+      ],
+      "default": "off"
+    },
     "watch_mode": {
       "type": "string",
       "title": "Watch tasks",

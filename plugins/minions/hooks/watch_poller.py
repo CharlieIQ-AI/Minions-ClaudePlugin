@@ -15,6 +15,13 @@ Lines are `minions-watch <json>`, with "event" one of:
   token_expired  the watch token expired or was revoked; call watch_tasks with needToken true
   access_revoked the account can no longer read the org's tasks; the watch stops
   unreachable / reachable   Minions could not be reached five polls running / is back
+
+The monitor starts in every session, but polls only while the Background watch monitor setting is
+on (off by default). It is given no plugin settings, so it waits for the one its SessionStart hook
+records (watch_state.recorded_monitor_setting). While the setting is off it stays idle, printing
+nothing, until its Claude Code process ends: a monitor that exits is reported to Claude, so exiting
+would put a line about the monitor into every session. While it polls it keeps
+watch_state.mark_monitor_running current, and the hooks offer watches only while it does.
 """
 
 from __future__ import annotations
@@ -35,6 +42,10 @@ import watch_state  # noqa: E402
 
 DEFAULT_INTERVAL_SECONDS = 60
 MIN_INTERVAL_SECONDS = 30
+# How long a starting monitor waits for its SessionStart hook to record the setting (hook timeout: 5 s).
+SETTING_WAIT_SECONDS = 15
+# How often an idle (setting off) monitor checks whether its Claude Code process has ended.
+IDLE_CHECK_SECONDS = 60
 UNREACHABLE_AFTER = 5
 SUMMARY_LIMIT = 300
 
@@ -177,39 +188,14 @@ def interval(session_id: str) -> int:
     return max(MIN_INTERVAL_SECONDS, seconds)
 
 
-def process_alive(pid: str | None) -> bool:
-    """Whether the Claude Code process `pid` still runs; True when it cannot be told.
-
-    The poller checks this before every poll and exits once its session's process is gone. On
-    Windows, ending a session stops the monitor's shell but not the Python under it, so without
-    this a poller outlives its session and keeps polling.
-    """
-    if not pid or not pid.isdigit():
-        return True
-    if os.name == "nt":
-        import ctypes
-
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        process_query_limited_information, still_active, access_denied = 0x1000, 259, 5
-        handle = kernel32.OpenProcess(process_query_limited_information, False, int(pid))
-        if not handle:
-            # Access denied means it exists; any other failure means there is no such process.
-            return ctypes.get_last_error() == access_denied
-        try:
-            code = ctypes.c_ulong()
-            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
-                return True
-            return code.value == still_active
-        finally:
-            kernel32.CloseHandle(handle)
-    try:
-        # Signal 0 only checks: on POSIX it never delivers anything (on Windows it would kill).
-        os.kill(int(pid), 0)
-    except (ProcessLookupError, OverflowError):
-        return False
-    except OSError:
-        return True
-    return True
+def wait_for_monitor_setting(pid: str, started_at: float, sleep: Callable[[float], None]) -> bool:
+    """Whether this process's SessionStart hook recorded the setting as on; off if it never records it."""
+    for _ in range(SETTING_WAIT_SECONDS):
+        setting = watch_state.recorded_monitor_setting(pid, not_before=started_at)
+        if setting is not None:
+            return setting == "on"
+        sleep(1)
+    return watch_state.recorded_monitor_setting(pid, not_before=started_at) == "on"
 
 
 def main(
@@ -217,7 +203,7 @@ def main(
     polls: int | None = None,
     sleep: Callable[[float], None] = time.sleep,
     fetch: Fetch = http_fetch,
-    alive: Callable[[str | None], bool] = process_alive,
+    alive: Callable[[str | None], bool] = watch_state.process_alive,
 ) -> int:
     # A monitor is not given CLAUDE_PLUGIN_DATA in its environment, only substituted into its
     # command (monitors/monitors.json), so it arrives as the first argument. Without it the poller
@@ -228,23 +214,34 @@ def main(
         os.environ["CLAUDE_PLUGIN_DATA"] = argv[1].strip()
     started_at = time.time()
     started_as = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
-    pid = os.environ.get("CLAUDE_PID")
-    if watch_state.state_path(started_as) is None and watch_state.pointer_path(pid) is None:
-        print("minions-watch: no session id or Claude Code process id; not watching", file=sys.stderr, flush=True)
+    pid = os.environ.get("CLAUDE_PID") or ""
+    # stderr is the monitor's log file, never an event Claude reads.
+    if watch_state.monitor_setting_path(pid) is None:
+        # Without the process id it can neither read its setting nor tell when its session ends.
+        print("minions-watch: no Claude Code process id; not watching", file=sys.stderr, flush=True)
         return 0
+    polling = wait_for_monitor_setting(pid, started_at, sleep)
+    if not polling:
+        print("minions-watch: the Background watch monitor setting is off; idle until the session ends",
+              file=sys.stderr, flush=True)
     done = 0
     while polls is None or done < polls:
         if not alive(pid):
+            watch_state.clear_monitor_running(pid, poller=str(os.getpid()))
             return 0
+        done += 1
+        if not polling:
+            sleep(IDLE_CHECK_SECONDS)
+            continue
+        # Rewritten every poll, so a week-long session's marker is never pruned as old.
+        watch_state.mark_monitor_running(pid)
         # The process's current session, which /clear or /resume may have changed since start.
         session_id = watch_state.current_session(pid, started_as, not_before=started_at)
         try:
             for line in poll_once(session_id, fetch):
                 print(line, flush=True)
         except Exception as error:  # noqa: BLE001 - one bad poll must not end the watch
-            # stderr is the monitor's log file, never an event Claude reads.
             print(f"minions-watch poll failed: {error}", file=sys.stderr, flush=True)
-        done += 1
         sleep(interval(session_id))
     return 0
 

@@ -19,6 +19,16 @@ on now. The monitor is started once per process and keeps the session id it star
 /clear, /resume and a fork move the process to a new session id; the SessionStart hook moves
 the watch to the new id and updates this pointer, and the poller follows it.
 
+`pid-<CLAUDE_PID>.monitor` holds "on" or "off": the Background watch monitor setting as that
+process's SessionStart hook saw it. A monitor is given no plugin settings, so the poller waits for
+this file when it starts and polls only if it says "on".
+
+`pid-<CLAUDE_PID>.running` holds the process id of the poller that is polling for that Claude Code
+process. The hooks offer and start watches only while it names a live process, so they follow what
+the monitor actually did rather than a setting it may never have seen. A fresh start deletes the
+one an earlier process with the same id left, and a poller deletes its own when its process ends:
+both ids can be reused, so a leftover could otherwise name an unrelated live process.
+
 The token is a read-only watch token (Minions docs/mcp.md -> Watching tasks from Claude Code). The
 file is written owner-only where the platform supports it. Writers hold a lock file and replace the
 state atomically, so the hook and the poller never interleave half-written JSON.
@@ -31,17 +41,21 @@ import os
 import re
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 STALE_LOCK_SECONDS = 10.0
 POINTER_SLACK_SECONDS = 60.0
+# Claude Code starts a monitor some seconds after the SessionStart hook (about 8 s seen on
+# Windows): how long the hooks wait for it before saying no monitor is running.
+MONITOR_START_SECONDS = 20.0
 STATE_RETENTION_SECONDS = 7 * 24 * 60 * 60
 DEFAULT_MODE = "ask"
 DEFAULT_REMINDER_MINUTES = 60
 MODES = ("ask", "auto", "off")
+MONITOR_MODES = ("on", "off")
 _SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _PID = re.compile(r"^[0-9]{1,10}$")
 
@@ -90,11 +104,16 @@ def point_process(pid: object, session_id: str) -> None:
     path = pointer_path(pid)
     if path is None or state_path(session_id) is None:
         return
+    _write_text(path, session_id)
+
+
+def _write_text(path: Path, text: str) -> None:
+    """Replace `path` with `text` atomically, so a reader never sees a half-written file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".pid-", suffix=".session", dir=str(path.parent))
+    fd, tmp = tempfile.mkstemp(prefix=".pid-", suffix=path.suffix, dir=str(path.parent))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(session_id)
+            handle.write(text)
         os.replace(tmp, path)
     except BaseException:
         try:
@@ -134,6 +153,147 @@ def carry_over(from_session: str, to_session: str) -> None:
 def configured_mode() -> str:
     mode = (os.environ.get("CLAUDE_PLUGIN_OPTION_WATCH_MODE") or "").strip().lower()
     return mode if mode in MODES else DEFAULT_MODE
+
+
+def monitor_setting_from_env() -> str:
+    """The Background watch monitor setting (watch_monitor) as Claude Code gives it to hooks; "off" unless "on".
+
+    A monitor gets no plugin settings (neither the environment variable nor a substituted
+    ${user_config.*} in its command), so the SessionStart hook records this for the poller.
+    """
+    value = (os.environ.get("CLAUDE_PLUGIN_OPTION_WATCH_MONITOR") or "").strip().lower()
+    return "on" if value == "on" else "off"
+
+
+def monitor_setting_path(pid: object) -> Path | None:
+    if not isinstance(pid, str) or not _PID.match(pid):
+        return None
+    return data_dir() / f"pid-{pid}.monitor"
+
+
+def record_monitor_setting(pid: object) -> str | None:
+    """Write this process's Background watch monitor setting for its monitor; the value, or None with no pid."""
+    path = monitor_setting_path(pid)
+    if path is None:
+        return None
+    setting = monitor_setting_from_env()
+    _write_text(path, setting)
+    return setting
+
+
+def recorded_monitor_setting(pid: object, not_before: float) -> str | None:
+    """"on" or "off" as the SessionStart hook of process `pid` recorded it; None until it has.
+
+    A file last written before `not_before` (less POINTER_SLACK_SECONDS) is ignored: it was left
+    by an earlier process that had the same id (see current_session).
+    """
+    path = monitor_setting_path(pid)
+    if path is None:
+        return None
+    try:
+        if path.stat().st_mtime < not_before - POINTER_SLACK_SECONDS:
+            return None
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return value if value in MONITOR_MODES else None
+
+
+def monitor_running_path(pid: object) -> Path | None:
+    if not isinstance(pid, str) or not _PID.match(pid):
+        return None
+    return data_dir() / f"pid-{pid}.running"
+
+
+def mark_monitor_running(pid: object) -> None:
+    """Record that this poller is polling for the Claude Code process `pid`."""
+    path = monitor_running_path(pid)
+    if path is not None:
+        _write_text(path, str(os.getpid()))
+
+
+def clear_monitor_running(pid: object, poller: str | None = None) -> None:
+    """Delete process `pid`'s running marker; with `poller`, only while it still names that poller."""
+    path = monitor_running_path(pid)
+    if path is None:
+        return
+    try:
+        if poller is None or path.read_text(encoding="utf-8").strip() == poller:
+            path.unlink()
+    except OSError:
+        pass
+
+
+def monitor_running(pid: object) -> bool:
+    """Whether a poller is polling for the Claude Code process `pid` now.
+
+    False without a pid: the monitor needs one to read its setting, so it never polls then.
+    """
+    path = monitor_running_path(pid)
+    if path is None:
+        return False
+    try:
+        poller = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return False
+    return bool(_PID.match(poller)) and process_alive(poller)
+
+
+def monitor_running_or_starting(pid: object, sleep: Callable[[float], None] = time.sleep) -> bool:
+    """monitor_running, waiting for a monitor that may still be starting.
+
+    A request sent as soon as a session opens can reach a hook before Claude Code has started the
+    monitor. While the setting this process recorded says "on" and was recorded less than
+    MONITOR_START_SECONDS ago, wait for the monitor to mark itself running; otherwise answer at once.
+    """
+    while not monitor_running(pid):
+        path = monitor_setting_path(pid)
+        if path is None:
+            return False
+        try:
+            recorded_at = path.stat().st_mtime
+            setting = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return False
+        if setting != "on" or time.time() >= recorded_at + MONITOR_START_SECONDS:
+            return False
+        sleep(0.25)
+    return True
+
+
+def process_alive(pid: str | None) -> bool:
+    """Whether process `pid` still runs; True when it cannot be told.
+
+    The poller checks its Claude Code process before every poll and exits once it is gone. On
+    Windows, ending a session stops the monitor's shell but not the Python under it, so without
+    this a poller outlives its session. The hooks check the poller itself (monitor_running).
+    """
+    if not pid or not pid.isdigit():
+        return True
+    if os.name == "nt":
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        process_query_limited_information, still_active, access_denied = 0x1000, 259, 5
+        handle = kernel32.OpenProcess(process_query_limited_information, False, int(pid))
+        if not handle:
+            # Access denied means it exists; any other failure means there is no such process.
+            return ctypes.get_last_error() == access_denied
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True
+            return code.value == still_active
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        # Signal 0 only checks: on POSIX it never delivers anything (on Windows it would kill).
+        os.kill(int(pid), 0)
+    except (ProcessLookupError, OverflowError):
+        return False
+    except OSError:
+        return True
+    return True
 
 
 def configured_reminder_minutes() -> int:
@@ -250,12 +410,27 @@ def open_keys(state: dict) -> list[str]:
     return sorted(key for key, entry in state.get("keys", {}).items() if isinstance(entry, dict) and entry.get("state") != "done")
 
 
-def previous_session_keys(session_id: str, cwd: str, now: float | None = None) -> tuple[list[str], dict[str, str]]:
-    """The still-open keys of the newest earlier session in the same folder, with their titles.
+def prune_old_files(now: float | None = None) -> None:
+    """Delete session state files and per-process files untouched for STATE_RETENTION_SECONDS.
 
-    Also deletes state files untouched for STATE_RETENTION_SECONDS, so old sessions do not pile up.
+    Run on every fresh start, whatever the settings, so old sessions and their expired tokens do
+    not pile up.
     """
     current = time.time() if now is None else now
+    try:
+        paths = [*data_dir().glob("*.json"), *data_dir().glob("pid-*")]
+    except OSError:
+        return
+    for path in paths:
+        try:
+            if current - path.stat().st_mtime > STATE_RETENTION_SECONDS:
+                path.unlink()
+        except OSError:
+            pass
+
+
+def previous_session_keys(session_id: str, cwd: str) -> tuple[list[str], dict[str, str]]:
+    """The still-open keys of the newest earlier session in the same folder, with their titles."""
     newest: tuple[float, dict] | None = None
     directory = data_dir()
     try:
@@ -267,12 +442,6 @@ def previous_session_keys(session_id: str, cwd: str, now: float | None = None) -
             mtime = path.stat().st_mtime
         except OSError:
             continue
-        if current - mtime > STATE_RETENTION_SECONDS:
-            try:
-                path.unlink()
-            except OSError:
-                pass
-            continue
         if path.stem == session_id:
             continue
         state = read_state(path)
@@ -280,12 +449,6 @@ def previous_session_keys(session_id: str, cwd: str, now: float | None = None) -
             continue
         if newest is None or mtime > newest[0]:
             newest = (mtime, state)
-    for path in directory.glob("pid-*.session"):
-        try:
-            if current - path.stat().st_mtime > STATE_RETENTION_SECONDS:
-                path.unlink()
-        except OSError:
-            pass
     if newest is None:
         return [], {}
     state = newest[1]

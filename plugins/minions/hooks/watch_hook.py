@@ -1,7 +1,15 @@
 """The Minions task watch's hooks (plugin README -> Watching tasks).
 
+Nothing is offered or started unless this process's monitor is polling (watch_state.monitor_running,
+waiting for one that is still starting):
+with the Background watch monitor setting (watch_monitor) off, the default, it never polls, and a
+setting turned on mid-session reaches no monitor until the next session. A watch nothing polls
+would never alert.
+
 PostToolUse after create_task / adopt_ticket / start_task / resume_task: offer to watch the task
 (watch_mode "ask"), start watching it ("auto"), or stay quiet ("off").
+
+PreToolUse before watch_tasks: refuse a call that starts a watch while no monitor is polling.
 
 PostToolUse after watch_tasks: record the watched keys and the poller's read-only token in this
 session's state file (watch_state.py), then hand Claude the result with the token removed.
@@ -35,6 +43,12 @@ TOKEN_PLACEHOLDER = "[kept by the Minions plugin]"  # noqa: S105 - shown in plac
 TASK_TOOLS = ("create_task", "adopt_ticket", "start_task", "resume_task")
 _TOOL = re.compile(r"^mcp__(?P<server>.*minions.*)__(?P<tool>[a-z_]+)$")
 _KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
+MONITOR_OFF_REASON = (
+    "Watching is not available in this session: the Minions plugin's background watch monitor is not "
+    "running, so nothing would check the task or alert the user. Tell the user in one line that watching "
+    "needs the Background watch monitor setting on (/plugin configure minions) and that a change applies "
+    "from their next session. Do not retry."
+)
 
 
 def _json_documents(value: object):
@@ -99,7 +113,8 @@ def after_task_tool(tool: str, payload: dict) -> dict | None:
     mode = watch_state.configured_mode()
     key = _task_key(tool, payload)
     session_id = payload.get("session_id")
-    if mode == "off" or not key or watch_state.state_path(session_id) is None:
+    if (mode == "off" or not key or watch_state.state_path(session_id) is None
+            or not watch_state.monitor_running_or_starting(os.environ.get("CLAUDE_PID"))):
         return None
     path = watch_state.state_path(session_id)
     state = watch_state.read_state(path) or {}
@@ -186,21 +201,50 @@ def after_watch_tasks(server: str, payload: dict, plugin_root: str) -> dict | No
     }
 
 
+def before_watch_tasks(payload: dict) -> dict | None:
+    """Refuse to start a watch while no monitor polls for this process: it would never alert.
+
+    A call that only stops watches is let through, so /unwatch still clears old ones.
+    """
+    if watch_state.monitor_running_or_starting(os.environ.get("CLAUDE_PID")):
+        return None
+    tool_input = payload.get("tool_input")
+    keys = tool_input.get("keys") if isinstance(tool_input, dict) else None
+    if not keys:
+        return None
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": MONITOR_OFF_REASON,
+        }
+    }
+
+
 def session_start(payload: dict) -> dict | None:
     mode = watch_state.configured_mode()
     session_id = payload.get("session_id")
     cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else ""
+    pid = os.environ.get("CLAUDE_PID")
+    source = payload.get("source") or "startup"
+    if source == "startup":
+        # A new process: a running marker under its id was left by an earlier one. Cleared before
+        # the setting is recorded, so this process's monitor cannot have written its own yet.
+        watch_state.clear_monitor_running(pid)
+    # Then at once: this process's monitor is waiting for it to decide whether to poll.
+    setting = watch_state.record_monitor_setting(pid)
+    if source == "startup":
+        watch_state.prune_old_files()
     if watch_state.state_path(session_id) is None:
         return None
     # /clear, /resume and a fork keep the process (and its monitor) but change the session id:
     # the watch moves with the process, silently. Only a fresh start offers last session's watches.
-    pid = os.environ.get("CLAUDE_PID")
-    source = payload.get("source") or "startup"
     previous = watch_state.current_session(pid)
     if source != "startup" and previous and previous != session_id:
         watch_state.carry_over(previous, session_id)
     watch_state.point_process(pid, session_id)
-    if source != "startup" or mode == "off" or not cwd:
+    # The monitor starts polling just after this hook, so a fresh start goes by the setting it records.
+    if source != "startup" or mode == "off" or setting != "on" or not cwd:
         return None
     keys, titles = watch_state.previous_session_keys(session_id, cwd)
     path = watch_state.state_path(session_id)
@@ -237,6 +281,10 @@ def main(argv: list[str]) -> int:
         output = None
         if payload.get("hook_event_name") == "SessionStart":
             output = session_start(payload)
+        elif payload.get("hook_event_name") == "PreToolUse":
+            match = _TOOL.match(str(payload.get("tool_name") or ""))
+            if match and match.group("tool") == "watch_tasks":
+                output = before_watch_tasks(payload)
         else:
             match = _TOOL.match(str(payload.get("tool_name") or ""))
             if match and match.group("tool") in TASK_TOOLS:

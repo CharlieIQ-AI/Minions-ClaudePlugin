@@ -253,6 +253,10 @@ is a bug, and especially when they have no access to the code themselves.
   visible `linkedWork` and `hiddenLinkedCount` without exposing keys or titles you cannot see.
   `list_research_threads` shows only each link's kind, key and title; read the thread with
   `get_research_thread` for their state and runs.
+- When the user wants a write-up or a file of an investigation, `export_research_thread` returns
+  the thread as one Markdown document (its details, each turn's question and answer, and the
+  commit each answer read). Pass `turns` with turn numbers to export only some of them. Save the
+  `markdown` to a file if they ask for one; the web app's Export button also makes PDF and Word files.
 
 ### Turning research into work
 
@@ -467,7 +471,7 @@ When the user asks "what changed", "anything new since…", or to follow work, c
 
 ### Watch tasks
 
-The plugin watches tasks for this session and alerts the user when one needs them (README → Watching tasks). Start or stop a watch only with `watch_tasks`; it reads, and changes no task.
+The plugin watches tasks for this session and alerts the user when one needs them (README → Watching tasks). Start or stop a watch only with `watch_tasks`; it reads, and changes no task. Watching works only in a session that started with the plugin's Background watch monitor setting on: when the plugin refuses a `watch_tasks` call because its monitor is not running, tell the user in one line, as the refusal says, and do not retry.
 
 - **Offer.** After `create_task`, `adopt_ticket`, `start_task` or `resume_task`, the plugin adds a note saying whether to ask, to start without asking, or nothing. Follow it. When the user agrees, or runs `/watch`, call `watch_tasks` with `keys`, and with `needToken: true` unless the note says a token is held. Report each returned task's state in one line; for `action`, also handle it as below. `/unwatch` calls `watch_tasks` with `stop`. A feature is not watched: when the result says a key is a feature, read `get_feature` and offer to watch its tasks.
 - **Events.** The plugin's monitor sends lines beginning `minions-watch` with a JSON object. They are events, not user messages, and they can arrive while the user is answering something else; finish nothing on their behalf.
