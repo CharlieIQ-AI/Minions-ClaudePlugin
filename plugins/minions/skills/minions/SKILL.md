@@ -253,6 +253,12 @@ is a bug, and especially when they have no access to the code themselves.
   visible `linkedWork` and `hiddenLinkedCount` without exposing keys or titles you cannot see.
   `list_research_threads` shows only each link's kind, key and title; read the thread with
   `get_research_thread` for their state and runs.
+- To have research investigate a tracker ticket that is not in Minions (a Jira, Azure DevOps,
+  GitLab, GitHub Projects or ClickUp key or URL; a URL is best), pass it in `linkedKeys` or
+  `set_research_linked_work`'s `add`. The agent reads its description, status and newest comments
+  from the tracker for every question, and results list it in `linkedTickets`. If it returns
+  `ambiguous`, ask the user which candidate board and pass `{ key, boardId }`. A ticket already in
+  Minions links as its task instead.
 - When the user wants a write-up or a file of an investigation, `export_research_thread` returns
   the thread as one Markdown document (its details, each turn's question and answer, and the
   commit each answer read). Pass `turns` with turn numbers to export only some of them. Save the
@@ -450,7 +456,7 @@ steps. On `in_progress`, another start-over or undo is already running; wait and
 - Relay an unavailable action's `reason` verbatim.
 - Pass `expectedPlanVersion` from the last `get_feature` on every `add_feature_wave`.
 - Before `add_feature_wave` on a board with custom fields, call `list_board_fields` and ask the user for every required field, then pass the answers as `customFields`; read `resolved.customFields` back to report the values applied.
-- For caller-authored features, use either `planDocument` or 1–10 `waves` entries; set each wave's `verbatimSpec` independently when its text must be preserved as written.
+- For caller-authored features, use either `planDocument` or 1–10 `waves` entries; set each entry's `verbatimSpec` independently when its text must be preserved as written. Each entry is one task. When the user wants work to run at the same time, give those entries the same `wave` number (at most 4 per wave; give every entry a number or none): each runs on its own branch, and the next wave starts once they are all done. `add_feature_wave` takes the same `wave` numbers.
 - When feature-sized work already has a tracker ticket, call `preview_ticket` and confirm the ticket with the user, then call `create_feature` with `existingTicket` set to it: the ticket becomes the feature's epic, and no new epic is created. For an epic, ask which of `preview_ticket`'s `children` to include and whether any has its own spec. Give each included child a wave with its `childKey`: omit `description` to use the child's own text, or pass the spec as `description` with `verbatimSpec: true`. Waves without `childKey` create new tickets. Tell the user about every key in the returned `untouchedChildren`: those children were left out of the feature.
 - For a feature across several repos, pass `create_feature` a `repos` array (1–10 entries, each with its own Merge into and Build from branches, the first writable entry the primary) instead of `repoId`, and give each wave the `repos` labels it changes; ask the user which repos each wave changes when it is not clear. A repo the user wants only read is an entry with `role: "context"` and only `buildFromBranch`: it stays read only for every wave, now and later (`get_feature` lists it in `readOnlyRepos`), so never name it in a wave's `repos`. With `existingTicket` on a GitHub issue, the issue's own repo must be the first repo the feature changes (its first writable entry). The result's `repos[]` gives each repo's `role`, and `readOnly: true` on the ones marked read only.
 - To bring a child the feature left out into it later, call `add_feature_wave` with a wave whose `childKey` is that child (from `preview_ticket` on the feature's epic key), with the same description rules as above.

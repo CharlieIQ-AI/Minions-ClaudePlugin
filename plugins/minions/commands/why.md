@@ -6,4 +6,4 @@ Use the Minions skill's Diagnose a run section for `$ARGUMENTS`.
 If `$ARGUMENTS` is empty, ask for the ticket key.
 Keep the diagnosis read-only and change nothing.
 `get_task` lists `attachments` with each file's kind, processing state and `stages` (which agent stage receives it as text, an image file, a digest, or not at all); when a user asks whether a stage will see a file, read that rather than guessing.
-When a task is in Planning, Ready for Planning Review, Ready for Dev, or Changes Requested without a run, read get_task.dependency; if held is true, report waiting on <key> (<status>) before <stage> rather than a failure.
+When a task is in Planning, Ready for Planning Review, Ready for Dev, or Changes Requested without a run, read get_task.dependency; if held is true, report waiting on <key> (<status>) before <stage> rather than a failure. Nothing starts until that task is Done, or for a feature, until it merges. When viaWaveMember is set, say the whole wave waits because <viaWaveMember> runs after <key>.
