@@ -1,11 +1,15 @@
-"""The task watch's per-session state file, shared by the watch hook and the background poller.
+"""The task watch's per-session files, shared by the watch hook and the background poller.
 
-One JSON file per Claude Code session under <plugin data>/watch/<session id>.json:
+The watch list is the computer's, not a session's: watch_list.py keeps it in
+<plugin data>/watch/watches.json, shared by every session.
+
+Each session also has its own file, <plugin data>/watch/<session id>.json, for what that session
+has shown and the token its poller uses:
 
     {
-      "sessionId": "...", "cwd": "...", "endpoint": "https://...", "pollPath": "/api/mcp/watch",
-      "pollIntervalSeconds": 60, "token": "mcp_...", "expiresAt": "2026-...Z",
-      "reminderMinutes": 60, "updatedAt": "...",
+      "sessionId": "...", "cwd": "...", "endpoint": "https://...", "orgId": 3,
+      "pollPath": "/api/mcp/watch", "pollIntervalSeconds": 60, "token": "mcp_...",
+      "expiresAt": "2026-...Z", "reminderMinutes": 60, "updatedAt": "...",
       "keys": {"DEMO-42": {"title": "...", "state": "action", "fingerprint": "...",
                            "lastAlertAt": 1731100000.0}},
       "notices": {"tokenExpired": false, "accessRevoked": false, "unreachable": false}
@@ -19,19 +23,16 @@ on now. The monitor is started once per process and keeps the session id it star
 /clear, /resume and a fork move the process to a new session id; the SessionStart hook moves
 the watch to the new id and updates this pointer, and the poller follows it.
 
-`pid-<CLAUDE_PID>.monitor` holds "on" or "off": the Background watch monitor setting as that
-process's SessionStart hook saw it. A monitor is given no plugin settings, so the poller waits for
-this file when it starts and polls only if it says "on".
-
-`pid-<CLAUDE_PID>.running` holds the process id of the poller that is polling for that Claude Code
-process. The hooks offer and start watches only while it names a live process, so they follow what
-the monitor actually did rather than a setting it may never have seen. A fresh start deletes the
-one an earlier process with the same id left, and a poller deletes its own when its process ends:
-both ids can be reused, so a leftover could otherwise name an unrelated live process.
+`pid-<CLAUDE_PID>.running` holds the process id of the poller running for that Claude Code
+process. Claude Code starts the monitor only when the minions:watch skill first runs in a session
+(monitors/monitors.json), so the hooks let a watch start only while this names a live poller: a
+watch nothing polls would never alert. A fresh start deletes the one an earlier process with the
+same id left, and a poller deletes its own when its process ends: both ids can be reused, so a
+leftover could otherwise name an unrelated live process.
 
 The token is a read-only watch token (Minions docs/mcp.md -> Watching tasks from Claude Code). The
-file is written owner-only where the platform supports it. Writers hold a lock file and replace the
-state atomically, so the hook and the poller never interleave half-written JSON.
+files are written owner-only where the platform supports it. Writers hold a lock file and replace
+the file atomically, so hooks and pollers never interleave half-written JSON.
 """
 
 from __future__ import annotations
@@ -48,14 +49,15 @@ from pathlib import Path
 
 STALE_LOCK_SECONDS = 10.0
 POINTER_SLACK_SECONDS = 60.0
-# Claude Code starts a monitor some seconds after the SessionStart hook (about 8 s seen on
-# Windows): how long the hooks wait for it before saying no monitor is running.
+# Claude Code starts the monitor some seconds after the minions:watch skill runs (up to about
+# 9 s seen on Windows): how long the hooks wait for it before saying no monitor is running.
 MONITOR_START_SECONDS = 20.0
 STATE_RETENTION_SECONDS = 7 * 24 * 60 * 60
+# The computer's watch list (watch_list.py), which pruning must never delete.
+SHARED_FILE = "watches.json"
 DEFAULT_MODE = "ask"
 DEFAULT_REMINDER_MINUTES = 60
 MODES = ("ask", "auto", "off")
-MONITOR_MODES = ("on", "off")
 _SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _PID = re.compile(r"^[0-9]{1,10}$")
 
@@ -140,7 +142,7 @@ def carry_over(from_session: str, to_session: str) -> None:
             for key, entry in source["keys"].items():
                 state["keys"].setdefault(key, entry)
             if not token_valid(state):
-                for field in ("endpoint", "pollPath", "pollIntervalSeconds", "token", "expiresAt", "reminderMinutes"):
+                for field in ("endpoint", "orgId", "pollPath", "pollIntervalSeconds", "token", "expiresAt", "reminderMinutes"):
                     if field in source:
                         state[field] = source[field]
                 state["notices"] = source["notices"]
@@ -153,50 +155,6 @@ def carry_over(from_session: str, to_session: str) -> None:
 def configured_mode() -> str:
     mode = (os.environ.get("CLAUDE_PLUGIN_OPTION_WATCH_MODE") or "").strip().lower()
     return mode if mode in MODES else DEFAULT_MODE
-
-
-def monitor_setting_from_env() -> str:
-    """The Background watch monitor setting (watch_monitor) as Claude Code gives it to hooks; "off" unless "on".
-
-    A monitor gets no plugin settings (neither the environment variable nor a substituted
-    ${user_config.*} in its command), so the SessionStart hook records this for the poller.
-    """
-    value = (os.environ.get("CLAUDE_PLUGIN_OPTION_WATCH_MONITOR") or "").strip().lower()
-    return "on" if value == "on" else "off"
-
-
-def monitor_setting_path(pid: object) -> Path | None:
-    if not isinstance(pid, str) or not _PID.match(pid):
-        return None
-    return data_dir() / f"pid-{pid}.monitor"
-
-
-def record_monitor_setting(pid: object) -> str | None:
-    """Write this process's Background watch monitor setting for its monitor; the value, or None with no pid."""
-    path = monitor_setting_path(pid)
-    if path is None:
-        return None
-    setting = monitor_setting_from_env()
-    _write_text(path, setting)
-    return setting
-
-
-def recorded_monitor_setting(pid: object, not_before: float) -> str | None:
-    """"on" or "off" as the SessionStart hook of process `pid` recorded it; None until it has.
-
-    A file last written before `not_before` (less POINTER_SLACK_SECONDS) is ignored: it was left
-    by an earlier process that had the same id (see current_session).
-    """
-    path = monitor_setting_path(pid)
-    if path is None:
-        return None
-    try:
-        if path.stat().st_mtime < not_before - POINTER_SLACK_SECONDS:
-            return None
-        value = path.read_text(encoding="utf-8").strip()
-    except OSError:
-        return None
-    return value if value in MONITOR_MODES else None
 
 
 def monitor_running_path(pid: object) -> Path | None:
@@ -225,9 +183,9 @@ def clear_monitor_running(pid: object, poller: str | None = None) -> None:
 
 
 def monitor_running(pid: object) -> bool:
-    """Whether a poller is polling for the Claude Code process `pid` now.
+    """Whether a poller is running for the Claude Code process `pid` now.
 
-    False without a pid: the monitor needs one to read its setting, so it never polls then.
+    False without a pid: the poller needs one to find its session, so it never polls then.
     """
     path = monitor_running_path(pid)
     if path is None:
@@ -239,23 +197,21 @@ def monitor_running(pid: object) -> bool:
     return bool(_PID.match(poller)) and process_alive(poller)
 
 
-def monitor_running_or_starting(pid: object, sleep: Callable[[float], None] = time.sleep) -> bool:
-    """monitor_running, waiting for a monitor that may still be starting.
+def monitor_running_or_starting(
+    pid: object,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> bool:
+    """monitor_running, waiting up to MONITOR_START_SECONDS for a monitor that may still be starting.
 
-    A request sent as soon as a session opens can reach a hook before Claude Code has started the
-    monitor. While the setting this process recorded says "on" and was recorded less than
-    MONITOR_START_SECONDS ago, wait for the monitor to mark itself running; otherwise answer at once.
+    The minions:watch skill starts the monitor, and Claude calls watch_tasks a few seconds later,
+    which can be before Claude Code has the poller running. Without a pid there is nothing to wait for.
     """
+    if monitor_running_path(pid) is None:
+        return False
+    deadline = clock() + MONITOR_START_SECONDS
     while not monitor_running(pid):
-        path = monitor_setting_path(pid)
-        if path is None:
-            return False
-        try:
-            recorded_at = path.stat().st_mtime
-            setting = path.read_text(encoding="utf-8").strip()
-        except OSError:
-            return False
-        if setting != "on" or time.time() >= recorded_at + MONITOR_START_SECONDS:
+        if clock() >= deadline:
             return False
         sleep(0.25)
     return True
@@ -422,42 +378,11 @@ def prune_old_files(now: float | None = None) -> None:
     except OSError:
         return
     for path in paths:
+        if path.name == SHARED_FILE:
+            # The computer's watch list: it lives until its watches end, however quiet it is.
+            continue
         try:
             if current - path.stat().st_mtime > STATE_RETENTION_SECONDS:
                 path.unlink()
         except OSError:
             pass
-
-
-def previous_session_keys(session_id: str, cwd: str) -> tuple[list[str], dict[str, str]]:
-    """The still-open keys of the newest earlier session in the same folder, with their titles."""
-    newest: tuple[float, dict] | None = None
-    directory = data_dir()
-    try:
-        entries = list(directory.glob("*.json"))
-    except OSError:
-        return [], {}
-    for path in entries:
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            continue
-        if path.stem == session_id:
-            continue
-        state = read_state(path)
-        if not state or not _same_folder(state.get("cwd"), cwd) or not open_keys(state):
-            continue
-        if newest is None or mtime > newest[0]:
-            newest = (mtime, state)
-    if newest is None:
-        return [], {}
-    state = newest[1]
-    keys = open_keys(state)
-    titles = {key: str(state["keys"][key].get("title") or "") for key in keys}
-    return keys, titles
-
-
-def _same_folder(left: object, right: object) -> bool:
-    if not isinstance(left, str) or not isinstance(right, str) or not left or not right:
-        return False
-    return left.replace("\\", "/").rstrip("/").lower() == right.replace("\\", "/").rstrip("/").lower()

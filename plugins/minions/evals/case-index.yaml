@@ -51,3 +51,7 @@ cases:
   - 42-answer-on-someone-elses-task
   - 43-watch-alert-needs-answer
   - 44-watch-task-done
+  - 45-watch-removed-elsewhere
+  - 46-unwatch-all
+  - 47-watch-a-feature
+  - 48-watch-feature-alert

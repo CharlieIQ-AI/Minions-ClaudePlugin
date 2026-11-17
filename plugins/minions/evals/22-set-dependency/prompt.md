@@ -1,1 +1,1 @@
-Make DEMO-46 wait on DEMO-42. Confirm both tasks first. I explicitly approve setting this dependency: DEMO-46 is the waiting task and DEMO-42 is the task it waits on.
+Make DEMO-46 wait on DEMO-42 and DEMO-43. Confirm all three tasks first. I explicitly approve setting these dependencies: DEMO-46 is the waiting task and DEMO-42 and DEMO-43 are the tasks it waits on.

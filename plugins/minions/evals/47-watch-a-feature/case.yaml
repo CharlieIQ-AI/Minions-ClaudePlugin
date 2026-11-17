@@ -1,0 +1,21 @@
+schema_version: "1.1"
+name: watch-a-feature
+tags: [watch-tasks]
+description: A feature is watched by its own key, not split into a watch per task.
+runs: 1
+execution:
+  max_turns: 6
+  timeout_seconds: 150
+  allowed_tools: [Skill]
+  prompt: "Watch feature DEMO-7 and tell me when it needs me."
+graders:
+  - name: watches-the-feature
+    type: tool_used
+    tool: mcp__minions__watch_tasks
+    input_match: 'DEMO-7'
+    min: 1
+  - name: no-feature-read-first
+    type: tool_used
+    tool: mcp__minions__get_feature
+    min: 0
+    max: 0

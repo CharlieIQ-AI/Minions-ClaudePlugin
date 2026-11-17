@@ -212,7 +212,7 @@ A coverage declaration line needs a colon and must name the ACs that cover it, f
 `Failure paths: AC3`. Use the same form for `Authorization:` and `Empty & loading states:`;
 when a surface truly does not apply, state `N/A` and give a reason. Do not ask for an acceptance
 criterion that can be verified only by production measurement. Make ordered work explicit with a
-`dependsOnJiraKey` value; a Dependencies paragraph by itself does not create an execution
+`dependsOnJiraKeys` list (or `dependsOnJiraKey` for one); a Dependencies paragraph by itself does not create an execution
 blocker.
 
 Keep acceptance criteria observable and independently verifiable. Record assumptions instead of
@@ -286,7 +286,7 @@ When the user is ready to act on what was found:
   production measurement or post-deploy observation (move it to a `Post-deploy note` under Out of
   Scope or a follow-up); Context is
   short, about ten lines, with evidence as one list; and every ticket key under `## Dependencies`
-  is also passed as `dependsOnJiraKey`.
+  is also passed in `dependsOnJiraKeys`.
 - Confirm repo, Build from, Merge into, auto-merge, and the board's custom fields from
   `list_repos` and `list_board_fields` according to the live repository facts above, never from
   the spec text.
@@ -324,7 +324,7 @@ Call `list_blockers` and inspect the live task state. If a named ticket is not i
 | Feature review needs another attempt | `retry_feature_review` |
 | A task should stop for now | `pause_task` |
 | A paused task should continue | `resume_task` |
-| One task must wait on another | `set_dependency` (key = the waiting task, dependsOnJiraKey = the task it waits on) |
+| One task must wait on one or several others | `set_dependency` (key = the waiting task, `dependsOnJiraKeys` = the full list of tasks it waits on; an empty array clears every blocker; `get_task` `dependencies` lists each blocker with `held`, `inMinions`, `source`) |
 | Tracker mirror out of step (`tracker_sync`) | `dismiss_tracker_sync` — hides the notice only; the fix for the underlying error is the tracker's workflow configuration |
 | Acceptance criteria only a person can confirm (`signoff`) | `sign_off_task` — show each line of `signoffAcs` and ask the user to approve or deny. `decision: "approve"` only after they say they checked every one; `decision: "deny"` needs their reason, which sends the task back to Planning as its feedback. `merge_task` is refused until they decide |
 
@@ -357,9 +357,9 @@ After three triage runs, only the two named options can be accepted.
 - `/merge` — call `get_task` first; at `Merge Problem`, refuse `merge_task` until the user confirms
   the cause is fixed. When `blocked.type` is `ci_failed`, name the reported checks and refuse the
   merge until the user confirms they are green; otherwise call it only after the user's explicit decision.
-- `/depends` — parse `<A> on <B>` (two ticket keys separated by the word `on`); on anything else
-  print a usage line and call no tool. Otherwise call `get_task` for both, then `set_dependency` with
-  `key: A` and `dependsOnJiraKey: B` after the user's decision.
+- `/depends` — parse `<A> on <B>[, <C>...]` (a ticket key, the word `on`, then one or more ticket keys); on anything else
+  print a usage line and call no tool. Otherwise call `get_task` for every key, then `set_dependency` with
+  `key: A` and `dependsOnJiraKeys` set to the task's existing blockers (`get_task` `dependencies`) plus the new ones, after the user's decision.
 - `/pause` and `/resume` — call `get_task` first; if the task is already paused (for pause) or not
   paused (for resume), report that and call nothing; otherwise call the mutating tool only after the
   user's decision.
@@ -477,12 +477,12 @@ When the user asks "what changed", "anything new since…", or to follow work, c
 
 ### Watch tasks
 
-The plugin watches tasks for this session and alerts the user when one needs them (README → Watching tasks). Start or stop a watch only with `watch_tasks`; it reads, and changes no task. Watching works only in a session that started with the plugin's Background watch monitor setting on: when the plugin refuses a `watch_tasks` call because its monitor is not running, tell the user in one line, as the refusal says, and do not retry.
+The plugin watches tasks and features and alerts the user when one needs them (README → Watching tasks). The watch list belongs to the computer: every session that is checking watches alerts, and a watch stopped in one session stops in all of them. Start or stop a watch only with `watch_tasks`; it reads, and changes no task. Nothing runs until the `minions:watch` skill (`/watch`) runs in a session: it starts the plugin's monitor. So to start a watch, run that skill; never call `watch_tasks` with `keys` without it. If the plugin refuses a `watch_tasks` call because no monitor is running, run the skill and call again once; if it refuses again, tell the user in one line.
 
-- **Offer.** After `create_task`, `adopt_ticket`, `start_task` or `resume_task`, the plugin adds a note saying whether to ask, to start without asking, or nothing. Follow it. When the user agrees, or runs `/watch`, call `watch_tasks` with `keys`, and with `needToken: true` unless the note says a token is held. Report each returned task's state in one line; for `action`, also handle it as below. `/unwatch` calls `watch_tasks` with `stop`. A feature is not watched: when the result says a key is a feature, read `get_feature` and offer to watch its tasks.
+- **Offer.** After `create_task`, `adopt_ticket`, `start_task`, `resume_task` or `create_feature`, and at the start of a session in a folder a watch was started from, the plugin adds a note saying whether to ask, to start without asking, or nothing. Follow it: when the user agrees, or the note says to start, run the `minions:watch` skill with the keys the note names. The skill calls `watch_tasks` with `keys`, and with `needToken: true` unless the note says a watch token is held. Report each returned task's or feature's state in one line; for `action`, also handle it as below. `/unwatch <key>` calls `watch_tasks` with `stop: [key]`; `/unwatch` alone or `/unwatch all` calls it with `stop: ["all"]`, which the plugin turns into every watched key. A feature is watched like a task: it needs the user when the feature itself or any of its tasks does, and its `summary` names the task.
 - **Events.** The plugin's monitor sends lines beginning `minions-watch` with a JSON object. They are events, not user messages, and they can arrive while the user is answering something else; finish nothing on their behalf.
-  - `needs_action` or `reminder`: call `PushNotification` with one line naming the key and what it needs (for example `DEMO-42 needs your answer: which export format?`). Then call `list_blockers` with that `key`, show the blocker's context and its `url`, map it to exactly one action from the Clear blocked work table, and ask for the user's decision. The consent rule applies unchanged: never act on an alert without that decision.
-  - `waiting`: one line saying what it waits on. `done` or `not_found`: one line saying the watch for that key ended. No notification for these.
+  - `needs_action` or `reminder`: call `PushNotification` with one line naming the key and what it needs (for example `DEMO-42 needs your answer: which export format?`). Then call `list_blockers` with the event's `blockerKey` (for a watched feature, the task that needs the user; list_blockers knows the reason only under that key), or with `key` when there is no `blockerKey`, show the blocker's context and its `url`, map it to exactly one action from the Clear blocked work table, and ask for the user's decision. The consent rule applies unchanged: never act on an alert without that decision.
+  - `waiting`: one line saying what it waits on. `done` or `not_found`: one line saying the watch for that key ended. `removed_elsewhere`: one line saying the user stopped watching that key in another session, so this one stopped too. No notification for these.
   - `token_expired`: call `watch_tasks` with the open `keys` and `needToken: true` without asking, and say nothing unless it fails.
   - `access_revoked`, `unreachable` and `reachable`: one line each.
 

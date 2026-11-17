@@ -23,60 +23,66 @@ setting up a repository), plus SessionStart version-check and PreToolUse secret-
 - `/fix-ci` — Review a waiting CI auto-fix and decide it
 - `/answer` — Answer a Minions clarification question
 - `/merge` — Merge a Minions task that is ready
-- `/depends` — Make one Minions task wait on another
+- `/depends` — Make one Minions task wait on one or more others
 - `/pause` — Pause a Minions task
 - `/resume` — Resume a paused Minions task
 - `/delete` — Delete a Minions task or feature
 - `/restore` — Restore a removed Minions task or feature
-- `/watch` — Watch a Minions task and alert me when it needs me
-- `/unwatch` — Stop watching a Minions task
+- `/watch` — Watch a Minions task or feature and alert me when it needs me
+- `/unwatch` — Stop watching a Minions task or feature
 - `/bugs` — List open Minions bugs
 - `/org` — Show or switch the organization this Minions connection works in.
 
 ## Watching tasks
 
-The plugin can watch the tasks you hand off from a session and tell you the moment one needs
-you: a question to answer, a blocker, a CI auto-fix to decide, a handback or PR feedback, a
-sign-off, CI failing at review, a task paused too long, or work ready for you to merge. When one
-does, Claude sends a desktop notification (skipped while you are at the terminal), shows what the
-task needs with its full context, and offers the action. Nothing is changed without your answer.
+The plugin can watch the tasks and features you hand off and tell you the moment one needs you:
+a question to answer, a blocker, a CI auto-fix to decide, a handback or PR feedback, a sign-off,
+CI failing at review, a task paused too long, or work ready for you to merge. When one does,
+Claude sends a desktop notification (skipped while you are at the terminal), shows what it needs
+with its full context, and offers the action. Nothing is changed without your answer.
 
-**Watching is off by default.** Turn on **Background watch monitor** in
-`/plugin configure minions`; it applies from the next session, because the monitor that checks
-watched tasks starts with the session. While it is off the monitor checks nothing, Claude offers
-nothing, and `/watch` says watching is not available (`/unwatch` still works).
+**Nothing runs until you watch something.** The background monitor that checks watches starts in
+a session only when you watch a task there (the `minions:watch` skill, `/watch`), so a session
+that never watches anything runs nothing.
 
-- **Starting.** With the monitor on, after you create, adopt, start or resume a task, Claude
-  offers to watch it. `/watch [ticket key]` starts one any time, and `/unwatch [ticket key]`
-  stops it. A watch ends on its own when the task merges, reaches Done or is removed, with one
-  line saying so.
-- **Settings** (`/plugin configure minions`): **Background watch monitor** is `off` (the
-  default) or `on`, as above. **Watch tasks** is `ask` (the default: offer
-  first), `auto` (start without asking) or `off`. **Watch reminder (minutes)** repeats the alert
-  while the same thing still needs you, every 60 minutes by default; `0` turns reminders off.
-  A watch keeps the reminder setting it started with: a change applies from the next `/watch`
-  or the next task Claude starts watching for you.
+- **Starting.** After you create, adopt, start or resume a task, or create a feature, Claude asks
+  whether to watch it. `/watch [ticket key …]` starts one any time. A watched feature alerts when
+  the feature itself, or any of its tasks, needs you. A watch ends on its own when the task or
+  feature merges, reaches Done or is removed, with one line saying so.
+- **One list for the computer.** Watches are not tied to the session that started them. Every
+  Claude Code session on your computer that is checking watches alerts, and a watch started in one
+  is checked by the others from their next check. `/unwatch [ticket key]` stops one watch, and
+  `/unwatch` alone or `/unwatch all` stops every watch on the session's Minions organization, in
+  every session; the others each say so in one line. A computer watches at most 25 tasks and
+  features.
+- **Next session.** When you start Claude Code in a folder a watch was started from, Claude asks
+  whether this session should check your watches. `/clear`, `/compact` and `/resume` keep a
+  session's checking running.
+- **Settings** (`/plugin configure minions`): **Watch tasks** is `ask` (the default: offer first),
+  `auto` (start without asking, here and in a new session) or `off` (never offer; `/watch` still
+  works). **Watch reminder (minutes)** repeats the alert while the same thing still needs you,
+  every 60 minutes by default; `0` turns reminders off. A session keeps the reminder setting it
+  started watching with.
 - **Also reported, without a notification:** a watched task now waiting on another task, and a
-  watched task finishing.
-- **Next session.** Watches belong to the open Claude Code window: `/clear`, `/compact` and
-  `/resume` keep them running. When you start Claude Code again in the same folder, Claude
-  offers to keep watching the tasks the last session left open.
-- **How it works.** A background monitor (`monitors/monitors.json`, `hooks/watch_poller.py`)
-  asks Minions about the watched tasks once a minute and prints only when one changes in a way
-  that matters, so a quiet watch costs nothing. It uses a read-only watch token from the
-  `watch_tasks` tool, valid 12 hours and accepted only by `GET /api/mcp/watch`; the plugin
-  keeps it in its data folder (`watch/<session id>.json`) and out of the conversation, and asks
-  for a new one when it expires. The monitor stops on its own once its Claude Code window is
-  closed. Claude Code starts it in every session and gives it no plugin settings, so the
-  SessionStart hook writes the Background watch monitor setting to `watch/pid-<process>.monitor`,
-  and the monitor polls only if that says `on`. Otherwise it stays idle, printing nothing, until
-  the window closes: a monitor that exits is reported to Claude, which would add a line to every
-  session. A polling monitor names itself in `watch/pid-<process>.running`, and Claude offers or
-  starts a watch only while that monitor is running (waiting up to 20 seconds for one that is still
-  starting when the session has just opened), so a setting turned on mid-session waits for the
-  next session. A feature is not watched; `/watch` on a feature offers to watch its tasks.
-- **Limits.** Alerts arrive only while a Claude Code session is open. Desktop notifications are
-  not available on Bedrock, Vertex or Foundry; the watch still reports in the terminal there.
+  watch finishing or being stopped in another session.
+- **How it works.** The watch list is `watch/watches.json` in the plugin's data folder, one list
+  per Minions server and organization. The monitor (`monitors/monitors.json`,
+  `hooks/watch_poller.py`; `"when": "on-skill-invoke:minions:watch"`) reads it once a minute,
+  asks Minions about the watched tasks, and prints only when one changes in a way that matters, so
+  a quiet watch costs nothing and an empty list costs no request. Sessions checking the same list
+  share one answer (`watch/poll-*.json`), so they send about one request a minute between them. Each session uses its own
+  read-only watch token from the `watch_tasks` tool, valid 12 hours and accepted only by
+  `GET /api/mcp/watch`; the plugin keeps it in `watch/<session id>.json`, out of the conversation,
+  and asks for a new one when it expires. Once started, the monitor runs until its Claude Code
+  window is closed (a monitor that exits is reported to Claude). A running monitor names itself in
+  `watch/pid-<process>.running`, and a watch starts only while one is running, waiting up to 20
+  seconds for one that is still starting.
+- **Limits.** Alerts arrive only while a Claude Code session that is checking watches is open.
+  Watches on another computer are separate. The list and the shared answer assume one Minions
+  account per computer user: two accounts in the same organization signed in from one computer
+  user share one list, and a session can show task titles and summaries fetched with the other
+  account's token. Desktop notifications are not available on Bedrock,
+  Vertex or Foundry; the watch still reports in the terminal there.
 
 ## Install from the marketplace
 

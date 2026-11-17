@@ -1,27 +1,34 @@
 """The Minions task watch's background poller, run by the plugin monitor (monitors/monitors.json).
 
-Every poll it reads this session's state file (watch_state.py), asks Minions where each watched
-task stands (GET <endpoint>/api/mcp/watch with the session's read-only watch token), and prints
-one line per change that matters. Each printed line reaches Claude as an event; the plugin skill
-says what to do with each. Nothing is printed while nothing changes, so a quiet watch costs no
-model turns.
+Every poll it reads the computer's watch list for this session's Minions endpoint and org
+(watch_state.py), asks Minions where each watched task or feature stands (GET
+<endpoint>/api/mcp/watch with the session's read-only watch token), and prints one line per change
+that matters. Each printed line reaches Claude as an event; the plugin skill says what to do with
+each. Nothing is printed while nothing changes, so a quiet watch costs no model turns, and an empty
+list costs no request.
 
 Lines are `minions-watch <json>`, with "event" one of:
-  needs_action   a watched task entered a state that needs the user, or its reason changed
-  reminder       still needs the user, reminderMinutes after the last alert
-  waiting        now held behind another task (no action)
-  done           merged, Done or removed; the watch for it ends
-  not_found      the key is no longer visible; the watch for it ends
-  token_expired  the watch token expired or was revoked; call watch_tasks with needToken true
-  access_revoked the account can no longer read the org's tasks; the watch stops
+  needs_action      a watched task entered a state that needs the user, or its reason changed
+  reminder          still needs the user, reminderMinutes after the last alert
+  waiting           now held behind another task (no action)
+  done              merged, Done or removed; the watch for it ends
+  not_found         the key is no longer visible; the watch for it ends
+  removed_elsewhere the user stopped watching it in another session; the watch for it ends here too
+  token_expired     the watch token expired or was revoked; call watch_tasks with needToken true
+  access_revoked    the account can no longer read the org's tasks; the watch stops
   unreachable / reachable   Minions could not be reached five polls running / is back
 
-The monitor starts in every session, but polls only while the Background watch monitor setting is
-on (off by default). It is given no plugin settings, so it waits for the one its SessionStart hook
-records (watch_state.recorded_monitor_setting). While the setting is off it stays idle, printing
-nothing, until its Claude Code process ends: a monitor that exits is reported to Claude, so exiting
-would put a line about the monitor into every session. While it polls it keeps
-watch_state.mark_monitor_running current, and the hooks offer watches only while it does.
+The list is shared (watch_list.py): a watch another session starts is checked here from the next
+poll, and one another session stops, or that ends there, is dropped here with its own line. So is
+the answer: a poller uses another session's answer for the same list from the last
+POLL_SHARE_SECONDS instead of asking again, so the sessions checking one list send about one
+request a minute between them.
+
+Claude Code starts the monitor only when the minions:watch skill first runs in a session
+(monitors/monitors.json: "when": "on-skill-invoke:minions:watch"), so nothing runs until someone
+watches a task. From then it polls until its Claude Code process ends, and never exits early: a
+monitor that exits is reported to Claude. It keeps watch_state.mark_monitor_running current, and
+the hooks let a watch start only while it does.
 """
 
 from __future__ import annotations
@@ -38,14 +45,11 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import watch_list  # noqa: E402
 import watch_state  # noqa: E402
 
 DEFAULT_INTERVAL_SECONDS = 60
 MIN_INTERVAL_SECONDS = 30
-# How long a starting monitor waits for its SessionStart hook to record the setting (hook timeout: 5 s).
-SETTING_WAIT_SECONDS = 15
-# How often an idle (setting off) monitor checks whether its Claude Code process has ended.
-IDLE_CHECK_SECONDS = 60
 UNREACHABLE_AFTER = 5
 SUMMARY_LIMIT = 300
 
@@ -81,13 +85,50 @@ def _event(name: str, **fields: object) -> str:
 def _task_fields(task: dict) -> dict:
     return {
         "key": task.get("key"),
+        "kind": task.get("kind"),
         "title": task.get("title"),
         "status": task.get("status"),
         "type": task.get("type"),
         "category": task.get("category"),
         "summary": task.get("summary"),
         "url": task.get("url"),
+        # The key list_blockers files the reason under: for a feature, the task that needs the user.
+        "blockerKey": task.get("blockerKey"),
     }
+
+
+def follow_list(session_id: str, scope: str) -> list[str]:
+    """Bring this session's keys in line with the computer's list; an event for each key that left it.
+
+    A key another session added is tracked with no state yet, so the first poll alerts on it if it
+    needs the user: this session has not shown it. A key that left the list is dropped with the
+    reason another session recorded (watch_list.end_watches). A key this session stopped itself
+    goes quietly: its hook drops it here and then from the list, and a poll between the two writes
+    can put it back here, so the list's `by` is what tells the two cases apart.
+    """
+    listed = watch_list.watched(scope)
+    gone = watch_list.ended(scope)
+    events: list[str] = []
+    with watch_state.update_state(session_id) as state:
+        keys = state["keys"]
+        for key in [key for key in keys if key not in listed]:
+            entry = keys.pop(key)
+            if not isinstance(entry, dict) or entry.get("state") == "done":
+                continue
+            why = gone.get(key) or {}
+            title = why.get("title") or entry.get("title") or None
+            if why.get("reason") == "removed" and why.get("by") == session_id:
+                continue
+            if why.get("reason") == "done":
+                events.append(_event("done", key=key, title=title, summary=why.get("summary") or None))
+            elif why.get("reason") == "not_found":
+                events.append(_event("not_found", key=key))
+            else:
+                events.append(_event("removed_elsewhere", key=key, title=title))
+        for key, entry in listed.items():
+            if key not in keys:
+                keys[key] = {"title": entry.get("title") or "", "state": None, "fingerprint": None, "lastAlertAt": None}
+    return events
 
 
 def poll_once(session_id: str, fetch: Fetch = http_fetch, now: float | None = None) -> list[str]:
@@ -99,10 +140,16 @@ def poll_once(session_id: str, fetch: Fetch = http_fetch, now: float | None = No
     snapshot = watch_state.read_state(path)
     if not snapshot:
         return []
+    endpoint = str(snapshot.get("endpoint") or "").rstrip("/")
+    scope = watch_list.list_scope(endpoint, snapshot.get("orgId"))
+    if scope is None:
+        # This session has never started a watch, so it has no token for any list.
+        return []
+    events = follow_list(session_id, scope)
+    snapshot = watch_state.read_state(path) or snapshot
     keys = watch_state.open_keys(snapshot)
     if not keys:
-        return []
-    events: list[str] = []
+        return events
     if not watch_state.token_valid(snapshot, current):
         with watch_state.update_state(session_id) as state:
             if not state["notices"].get("tokenExpired"):
@@ -110,11 +157,28 @@ def poll_once(session_id: str, fetch: Fetch = http_fetch, now: float | None = No
                 events.append(_event("token_expired", keys=watch_state.open_keys(state)))
         return events
 
-    endpoint = str(snapshot.get("endpoint") or "").rstrip("/")
     poll_path = str(snapshot.get("pollPath") or "/api/mcp/watch")
     url = f"{endpoint}{poll_path}?keys={urllib.parse.quote(','.join(keys), safe=',')}"
-    status, body = fetch(url, str(snapshot.get("token")))
+    shared = watch_list.read_poll(scope, keys, current)
+    if shared is not None:
+        status, body = 200, shared
+    else:
+        status, body = fetch(url, str(snapshot.get("token")))
+        if status == 200 and isinstance(body, dict):
+            watch_list.write_poll(scope, keys, body, current)
 
+    # Keys whose watch ended here: taken off this list once this session's file is written, so
+    # the other sessions say why (follow_list) instead of only that they are gone. Only this
+    # session's own list: a bare key can name a task in another org too.
+    ended: dict[str, dict[str, str]] = {"done": {}, "not_found": {}}
+    events.extend(_apply_poll(session_id, status, body, current, ended))
+    for reason, summaries in ended.items():
+        watch_list.end_watches(scope, list(summaries), reason, summaries, now=current)
+    return events
+
+
+def _apply_poll(session_id: str, status: int, body: object, current: float, ended: dict[str, dict[str, str]]) -> list[str]:
+    events: list[str] = []
     with watch_state.update_state(session_id) as state:
         notices = state["notices"]
         if status == 401:
@@ -127,6 +191,8 @@ def poll_once(session_id: str, fetch: Fetch = http_fetch, now: float | None = No
             if not notices.get("accessRevoked"):
                 notices["accessRevoked"] = True
                 events.append(_event("access_revoked", keys=watch_state.open_keys(state)))
+            # Nothing on this list can be read any more, from any session.
+            ended["not_found"].update({key: "" for key in state["keys"]})
             state["keys"] = {}
             return events
         if status == 429:
@@ -154,6 +220,7 @@ def poll_once(session_id: str, fetch: Fetch = http_fetch, now: float | None = No
             if new_state == "done":
                 events.append(_event("done", **_task_fields(task)))
                 watched.pop(key, None)
+                ended["done"][key] = str(task.get("summary") or "")
                 continue
             if new_state == "action":
                 if fingerprint != entry.get("fingerprint") or entry.get("state") != "action":
@@ -175,6 +242,7 @@ def poll_once(session_id: str, fetch: Fetch = http_fetch, now: float | None = No
             if key in watched:
                 events.append(_event("not_found", key=key))
                 watched.pop(key, None)
+                ended["not_found"][key] = ""
     return events
 
 
@@ -186,16 +254,6 @@ def interval(session_id: str) -> int:
     except (TypeError, ValueError):
         seconds = DEFAULT_INTERVAL_SECONDS
     return max(MIN_INTERVAL_SECONDS, seconds)
-
-
-def wait_for_monitor_setting(pid: str, started_at: float, sleep: Callable[[float], None]) -> bool:
-    """Whether this process's SessionStart hook recorded the setting as on; off if it never records it."""
-    for _ in range(SETTING_WAIT_SECONDS):
-        setting = watch_state.recorded_monitor_setting(pid, not_before=started_at)
-        if setting is not None:
-            return setting == "on"
-        sleep(1)
-    return watch_state.recorded_monitor_setting(pid, not_before=started_at) == "on"
 
 
 def main(
@@ -216,23 +274,16 @@ def main(
     started_as = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
     pid = os.environ.get("CLAUDE_PID") or ""
     # stderr is the monitor's log file, never an event Claude reads.
-    if watch_state.monitor_setting_path(pid) is None:
-        # Without the process id it can neither read its setting nor tell when its session ends.
+    if watch_state.monitor_running_path(pid) is None:
+        # Without the process id it can neither find its session nor tell when the session ends.
         print("minions-watch: no Claude Code process id; not watching", file=sys.stderr, flush=True)
         return 0
-    polling = wait_for_monitor_setting(pid, started_at, sleep)
-    if not polling:
-        print("minions-watch: the Background watch monitor setting is off; idle until the session ends",
-              file=sys.stderr, flush=True)
     done = 0
     while polls is None or done < polls:
         if not alive(pid):
             watch_state.clear_monitor_running(pid, poller=str(os.getpid()))
             return 0
         done += 1
-        if not polling:
-            sleep(IDLE_CHECK_SECONDS)
-            continue
         # Rewritten every poll, so a week-long session's marker is never pruned as old.
         watch_state.mark_monitor_running(pid)
         # The process's current session, which /clear or /resume may have changed since start.

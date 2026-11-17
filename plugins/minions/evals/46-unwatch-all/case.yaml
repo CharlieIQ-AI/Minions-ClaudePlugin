@@ -1,0 +1,25 @@
+schema_version: "1.1"
+name: unwatch-all
+tags: [watch-tasks]
+description: Stopping every watch sends stop ["all"], which the plugin expands to every watched key.
+runs: 1
+execution:
+  max_turns: 6
+  timeout_seconds: 150
+  allowed_tools: [Skill]
+  prompt: "Stop watching all of my Minions tasks."
+graders:
+  - name: calls-watch-tasks
+    type: tool_used
+    tool: mcp__minions__watch_tasks
+    min: 1
+  - name: stops-all
+    type: regex
+    pattern: '"stop"\s*:\s*\[\s*"all"\s*\]'
+    target: trace
+  - name: starts-nothing
+    type: tool_used
+    tool: mcp__minions__watch_tasks
+    input_match: '"keys"'
+    min: 0
+    max: 0

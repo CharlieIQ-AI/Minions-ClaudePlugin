@@ -1,22 +1,28 @@
 """The Minions task watch's hooks (plugin README -> Watching tasks).
 
-Nothing is offered or started unless this process's monitor is polling (watch_state.monitor_running,
-waiting for one that is still starting):
-with the Background watch monitor setting (watch_monitor) off, the default, it never polls, and a
-setting turned on mid-session reaches no monitor until the next session. A watch nothing polls
-would never alert.
+Nothing runs until someone watches something: Claude Code starts the watch monitor only when the
+minions:watch skill first runs in a session (monitors/monitors.json). So every offer here tells
+Claude to run that skill, never to call watch_tasks directly, and a watch_tasks call that starts a
+watch is refused while no monitor is running for this process (watch_state.monitor_running,
+waiting for one that is still starting): a watch nothing polls would never alert.
 
-PostToolUse after create_task / adopt_ticket / start_task / resume_task: offer to watch the task
-(watch_mode "ask"), start watching it ("auto"), or stay quiet ("off").
+The watch list is the computer's, shared by every session (watch_list.py → watches.json), one
+list per Minions endpoint and org.
 
-PreToolUse before watch_tasks: refuse a call that starts a watch while no monitor is polling.
+PostToolUse after create_task / adopt_ticket / start_task / resume_task / create_feature: offer
+to watch the task or feature (watch_mode "ask"), start watching it ("auto"), or stay quiet ("off").
 
-PostToolUse after watch_tasks: record the watched keys and the poller's read-only token in this
-session's state file (watch_state.py), then hand Claude the result with the token removed.
+PreToolUse before watch_tasks: turn `stop: ["all"]` into every key on this session's list, keep the
+computer within MAX_WATCHES, and refuse a call that starts a watch while no monitor is running.
 
-SessionStart: on a fresh start, offer to keep watching the still-open tasks the last session in
-this folder watched. After /clear, /resume or a fork, move this process's watch to the new
-session id instead, without a word (watch_state.py → the session pointer).
+PostToolUse after watch_tasks: add the started keys to the computer's list and take the stopped
+ones off it, record the poller's read-only token in this session's state file, then hand Claude the
+result with the token removed. Order matters, because a poller can read between two writes: a key
+goes on the list before this session's file names it, and comes off it after.
+
+SessionStart: on a fresh start in a folder a watch was started from, offer to check the watches in
+this session. After /clear, /resume or a fork, move this process's watch to the new session id
+instead, without a word (watch_state.py → the session pointer).
 
 Every path exits 0 and prints nothing it cannot stand behind: a hook failure must never break the
 tool call it follows.
@@ -34,20 +40,27 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import watch_list  # noqa: E402
 import watch_state  # noqa: E402
 from minions_endpoint import discover_endpoint  # noqa: E402
 
 DEFAULT_ENDPOINT = "https://minions.charlieiq.ai"
 PLUGIN_SERVER_PREFIX = "plugin_minions_"
 TOKEN_PLACEHOLDER = "[kept by the Minions plugin]"  # noqa: S105 - shown in place of the token, not a credential
-TASK_TOOLS = ("create_task", "adopt_ticket", "start_task", "resume_task")
+TASK_TOOLS = ("create_task", "adopt_ticket", "start_task", "resume_task", "create_feature")
+# The most keys one GET /api/mcp/watch takes (MAX_WATCH_KEYS in Minions' lib/task-attention.ts).
+MAX_WATCHES = 25
+STOP_ALL = "all"
 _TOOL = re.compile(r"^mcp__(?P<server>.*minions.*)__(?P<tool>[a-z_]+)$")
 _KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
-MONITOR_OFF_REASON = (
-    "Watching is not available in this session: the Minions plugin's background watch monitor is not "
-    "running, so nothing would check the task or alert the user. Tell the user in one line that watching "
-    "needs the Background watch monitor setting on (/plugin configure minions) and that a change applies "
-    "from their next session. Do not retry."
+MONITOR_NOT_RUNNING_REASON = (
+    "No watch monitor is running in this session, so nothing would check the task or alert the user. "
+    "Run the minions:watch skill (it starts the monitor), then call watch_tasks again."
+)
+NOTHING_WATCHED_REASON = "Nothing is being watched on this computer. Tell the user so in one line."
+SEVERAL_ORGS_REASON = (
+    "This computer watches tasks in more than one Minions organization, and this session has not watched "
+    "anything yet, so it cannot tell which list to clear. Ask the user which keys to stop watching, and pass them as stop."
 )
 
 
@@ -98,13 +111,49 @@ def _context(event: str, text: str, extra: dict | None = None) -> dict:
     return {"hookSpecificOutput": output}
 
 
+def _deny(reason: str) -> dict:
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}
+
+
 def _task_key(tool: str, payload: dict) -> str | None:
     if tool in ("start_task", "resume_task"):
         key = (payload.get("tool_input") or {}).get("key")
+    elif tool == "create_feature":
+        # The feature's own key; its stories carry "key" too, and they are not what was made.
+        doc = _find(payload.get("tool_response"), "epicKey")
+        key = doc.get("epicKey") if doc else None
     else:
         doc = _find(payload.get("tool_response"), "key")
         key = doc.get("key") if doc else None
     return key.strip() if isinstance(key, str) and _KEY.match(key.strip()) else None
+
+
+def _skill_call(keys: list[str], has_token: bool) -> str:
+    # commands/watch.md sets needToken unless the note says a token is held.
+    note = " (a watch token is held)" if has_token else ""
+    return f'the minions:watch skill with arguments "{" ".join(keys)}"{note}'
+
+
+def _endpoint(server: str, cwd: str, plugin_root: str) -> str:
+    """The Minions endpoint this MCP server talks to, the one its watch list is kept under."""
+    plugin_first = server.startswith(PLUGIN_SERVER_PREFIX)
+    return discover_endpoint(
+        DEFAULT_ENDPOINT,
+        os.environ.get("HOME") or os.path.expanduser("~"),
+        cwd or os.getcwd(),
+        plugin_root,
+        server=server[len(PLUGIN_SERVER_PREFIX):] if plugin_first else server,
+        plugin_first=plugin_first,
+    ).rstrip("/")
+
+
+def _session_scope(state: dict) -> str | None:
+    return watch_list.list_scope(state.get("endpoint"), state.get("orgId"))
+
+
+def _session_state(session_id: object) -> dict:
+    path = watch_state.state_path(session_id)
+    return (watch_state.read_state(path) if path else None) or {}
 
 
 def after_task_tool(tool: str, payload: dict) -> dict | None:
@@ -112,26 +161,24 @@ def after_task_tool(tool: str, payload: dict) -> dict | None:
         return None
     mode = watch_state.configured_mode()
     key = _task_key(tool, payload)
-    session_id = payload.get("session_id")
-    if (mode == "off" or not key or watch_state.state_path(session_id) is None
-            or not watch_state.monitor_running_or_starting(os.environ.get("CLAUDE_PID"))):
+    if mode == "off" or not key:
         return None
-    path = watch_state.state_path(session_id)
-    state = watch_state.read_state(path) or {}
-    entry = state.get("keys", {}).get(key)
-    if isinstance(entry, dict) and entry.get("state") != "done":
+    state = _session_state(payload.get("session_id"))
+    # Already on the computer's list: this session's org list when it has one, else any list.
+    scope = _session_scope(state)
+    if key in (watch_list.watched(scope) if scope else watch_list.all_keys()):
         return None
-    has_token = watch_state.token_valid(state)
-    call = f'watch_tasks with keys ["{key}"]' + ("" if has_token else " and needToken true")
+    noun = "feature" if tool == "create_feature" else "task"
+    call = _skill_call([key], watch_state.token_valid(state))
     if mode == "auto":
         text = (
-            f"Minions task watch (auto): call {call} now without asking, then tell the user in one line that "
+            f"Minions task watch (auto): run {call} now without asking, then tell the user in one line that "
             f"you are watching {key} and will alert them when it needs them. Change this with /plugin configure minions."
         )
     else:
         text = (
-            f"Minions task watch: ask the user, in one short question, whether to watch {key} in this session "
-            f"so you can alert them (with a desktop notification) when it needs their action. If they agree, call {call}. "
+            f"Minions task watch: ask the user, in one short question, whether to watch {noun} {key} so you can alert "
+            f"them (with a desktop notification) when it needs their action. If they agree, run {call}. "
             "If they decline, do nothing more."
         )
     return _context("PostToolUse", text)
@@ -146,19 +193,33 @@ def after_watch_tasks(server: str, payload: dict, plugin_root: str) -> dict | No
     if result is None:
         return None
     cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else ""
-    plugin_first = server.startswith(PLUGIN_SERVER_PREFIX)
-    endpoint = discover_endpoint(
-        DEFAULT_ENDPOINT,
-        os.environ.get("HOME") or os.path.expanduser("~"),
-        cwd or os.getcwd(),
-        plugin_root,
-        server=server[len(PLUGIN_SERVER_PREFIX):] if plugin_first else server,
-        plugin_first=plugin_first,
-    )
+    endpoint = _endpoint(server, cwd, plugin_root)
+    # A Minions older than interface 1.168 returns no orgId: its watches share one list per endpoint.
+    org_id = result.get("orgId") if isinstance(result.get("orgId"), int) and not isinstance(result.get("orgId"), bool) else 0
+    scope = watch_list.list_scope(endpoint, org_id)
     token = result.get("token") if isinstance(result.get("token"), str) else ""
     now = time.time()
+    started = [task for task in result.get("watching") or [] if isinstance(task, dict) and isinstance(task.get("key"), str)]
+    stopped = [key for key in result.get("stopped") or [] if isinstance(key, str)]
+    open_started = [task for task in started if task.get("state") != "done"]
+
+    # On the list first: a poller reading between the two writes would otherwise find a key in
+    # this session's file that the list lacks, and report it removed in another session.
+    if scope is not None and open_started:
+        watch_list.add_watches(scope, open_started, cwd, now=now)
+
     with watch_state.update_state(session_id, cwd) as state:
+        if _session_scope(state) not in (None, scope):
+            # The connection moved to another org (switch_org). The token held reads the old org's
+            # tasks only, and the keys here are that org's list: this session follows the new one.
+            # With no new token the poller reports token_expired, and Claude asks for one.
+            state["keys"] = {}
+            if not token:
+                state.pop("token", None)
+                state.pop("expiresAt", None)
+                state["notices"]["tokenExpired"] = False
         state["endpoint"] = endpoint
+        state["orgId"] = org_id
         state["reminderMinutes"] = watch_state.configured_reminder_minutes()
         if isinstance(result.get("pollPath"), str) and result["pollPath"].startswith("/api/"):
             state["pollPath"] = result["pollPath"]
@@ -169,12 +230,10 @@ def after_watch_tasks(server: str, payload: dict, plugin_root: str) -> dict | No
             state["expiresAt"] = result.get("expiresAt")
             state["notices"]["tokenExpired"] = False
         keys = state["keys"]
-        if result.get("watching"):
+        if started:
             # A watch started after a revocation is a new one: a later revocation is reported again.
             state["notices"]["accessRevoked"] = False
-        for task in result.get("watching") or []:
-            if not isinstance(task, dict) or not isinstance(task.get("key"), str):
-                continue
+        for task in started:
             if task.get("state") == "done":
                 keys.pop(task["key"], None)
                 continue
@@ -186,9 +245,13 @@ def after_watch_tasks(server: str, payload: dict, plugin_root: str) -> dict | No
                 "fingerprint": task.get("fingerprint"),
                 "lastAlertAt": now if task.get("state") == "action" else previous.get("lastAlertAt"),
             }
-        for key in result.get("stopped") or []:
-            if isinstance(key, str):
-                keys.pop(key, None)
+        for key in stopped:
+            keys.pop(key, None)
+
+    # Off the list last, for the same reason: this session's file no longer names them.
+    finished = {task["key"]: str(task.get("summary") or "") for task in started if task.get("state") == "done"}
+    watch_list.end_watches(scope, list(finished), "done", finished, now=now)
+    watch_list.end_watches(scope, stopped, "removed", now=now, by=str(session_id))
     # The monitor finds this session through the process it runs in (watch_state.py).
     watch_state.point_process(os.environ.get("CLAUDE_PID"), session_id)
     if not token:
@@ -201,24 +264,57 @@ def after_watch_tasks(server: str, payload: dict, plugin_root: str) -> dict | No
     }
 
 
-def before_watch_tasks(payload: dict) -> dict | None:
-    """Refuse to start a watch while no monitor polls for this process: it would never alert.
+def _stop_all_keys(payload: dict, server: str, plugin_root: str) -> list[str] | dict:
+    """The keys `stop: ["all"]` means: this session's org list, or a refusal to send instead.
 
-    A call that only stops watches is let through, so /unwatch still clears old ones.
+    A session that has watched knows its list. One that has not knows only the endpoint: with one
+    org's list there it is that one, with several it cannot tell which, so it asks.
     """
-    if watch_state.monitor_running_or_starting(os.environ.get("CLAUDE_PID")):
-        return None
+    state = _session_state(payload.get("session_id"))
+    scope = _session_scope(state)
+    if scope is None:
+        cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else ""
+        scopes = watch_list.scopes_on(_endpoint(server, cwd, plugin_root))
+        if len(scopes) > 1:
+            return _deny(SEVERAL_ORGS_REASON)
+        scope = scopes[0] if scopes else None
+    keys = sorted(watch_list.watched(scope))
+    return keys if keys else _deny(NOTHING_WATCHED_REASON)
+
+
+def before_watch_tasks(payload: dict, server: str = "", plugin_root: str = "") -> dict | None:
+    """Expand `stop: ["all"]`, keep the computer within MAX_WATCHES, and refuse a watch nothing would poll.
+
+    A call that only stops watches always goes through, so /unwatch works in any session.
+    """
     tool_input = payload.get("tool_input")
-    keys = tool_input.get("keys") if isinstance(tool_input, dict) else None
-    if not keys:
+    if not isinstance(tool_input, dict):
         return None
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": MONITOR_OFF_REASON,
-        }
-    }
+    updated: dict | None = None
+    stop = tool_input.get("stop")
+    if isinstance(stop, list) and any(isinstance(key, str) and key.strip().lower() == STOP_ALL for key in stop):
+        every = _stop_all_keys(payload, server, plugin_root)
+        if isinstance(every, dict):
+            return every
+        named = [key for key in stop if isinstance(key, str) and key.strip().lower() != STOP_ALL]
+        updated = {**tool_input, "stop": sorted(set(every) | set(named))[:MAX_WATCHES]}
+
+    starting = tool_input.get("keys")
+    if isinstance(starting, list) and starting:
+        # The whole computer, not one list: a session about to start may not know its org yet.
+        already = set(watch_list.all_keys())
+        new = {key for key in starting if isinstance(key, str)} - already
+        if len(already) + len(new) > MAX_WATCHES:
+            return _deny(
+                f"This computer already watches {len(already)} Minions tasks and features; the limit is {MAX_WATCHES}. "
+                "Tell the user, and ask which to stop watching first (/unwatch)."
+            )
+        if not watch_state.monitor_running_or_starting(os.environ.get("CLAUDE_PID")):
+            return _deny(MONITOR_NOT_RUNNING_REASON)
+
+    if updated is None:
+        return None
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": updated}}
 
 
 def session_start(payload: dict) -> dict | None:
@@ -228,41 +324,35 @@ def session_start(payload: dict) -> dict | None:
     pid = os.environ.get("CLAUDE_PID")
     source = payload.get("source") or "startup"
     if source == "startup":
-        # A new process: a running marker under its id was left by an earlier one. Cleared before
-        # the setting is recorded, so this process's monitor cannot have written its own yet.
+        # A new process: a running marker under its id was left by an earlier one.
         watch_state.clear_monitor_running(pid)
-    # Then at once: this process's monitor is waiting for it to decide whether to poll.
-    setting = watch_state.record_monitor_setting(pid)
-    if source == "startup":
         watch_state.prune_old_files()
     if watch_state.state_path(session_id) is None:
         return None
     # /clear, /resume and a fork keep the process (and its monitor) but change the session id:
-    # the watch moves with the process, silently. Only a fresh start offers last session's watches.
+    # the watch moves with the process, silently. Only a fresh start offers the folder's watches.
     previous = watch_state.current_session(pid)
     if source != "startup" and previous and previous != session_id:
         watch_state.carry_over(previous, session_id)
     watch_state.point_process(pid, session_id)
-    # The monitor starts polling just after this hook, so a fresh start goes by the setting it records.
-    if source != "startup" or mode == "off" or setting != "on" or not cwd:
+    if source != "startup" or mode == "off" or not cwd:
         return None
-    keys, titles = watch_state.previous_session_keys(session_id, cwd)
-    path = watch_state.state_path(session_id)
-    already = set(watch_state.open_keys(watch_state.read_state(path) or {})) if path else set()
-    keys = [key for key in keys if key not in already]
+    keys, titles = watch_list.folder_keys(cwd)
     if not keys:
         return None
     listed = ", ".join(f"{key} ({titles[key]})" if titles.get(key) else key for key in keys)
-    call = "watch_tasks with keys [" + ", ".join(f'"{key}"' for key in keys) + "] and needToken true"
+    call = _skill_call(keys, False)
     if mode == "auto":
         text = (
-            f"Minions task watch (auto): the last session in this folder was watching {listed}. "
-            f"Call {call} when the user's first request is handled, without asking, and tell them in one line."
+            f"Minions task watch (auto): this computer is watching {listed}, started from this folder. "
+            f"When the user's first request is handled, run {call} without asking, and tell them in one line "
+            "that this session is checking their watched tasks."
         )
     else:
         text = (
-            f"Minions task watch: the last session in this folder was watching {listed}. After the user's first "
-            f"request, ask in one short question whether to keep watching them here; if they agree, call {call}."
+            f"Minions task watch: this computer is watching {listed}, started from this folder. After the "
+            "user's first request, ask in one short question whether this session should check them and alert "
+            f"them when one needs them; if they agree, run {call}."
         )
     return _context("SessionStart", text)
 
@@ -284,7 +374,7 @@ def main(argv: list[str]) -> int:
         elif payload.get("hook_event_name") == "PreToolUse":
             match = _TOOL.match(str(payload.get("tool_name") or ""))
             if match and match.group("tool") == "watch_tasks":
-                output = before_watch_tasks(payload)
+                output = before_watch_tasks(payload, match.group("server"), plugin_root)
         else:
             match = _TOOL.match(str(payload.get("tool_name") or ""))
             if match and match.group("tool") in TASK_TOOLS:
