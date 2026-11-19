@@ -32,6 +32,7 @@ setting up a repository), plus SessionStart version-check and PreToolUse secret-
 - `/unwatch` — Stop watching a Minions task or feature
 - `/bugs` — List open Minions bugs
 - `/org` — Show or switch the organization this Minions connection works in.
+- `/mcp-servers` — Manage the MCP servers Minions agents can use.
 
 ## Watching tasks
 

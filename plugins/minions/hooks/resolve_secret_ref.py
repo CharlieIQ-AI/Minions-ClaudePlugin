@@ -13,6 +13,7 @@ from pathlib import Path
 DEFAULT_ENDPOINT = "https://minions.charlieiq.ai"
 REPO_TOOL_SUFFIX = "__set_repo_secret"
 ORG_TOOL_SUFFIX = "__set_org_secret"
+AGENT_MCP_TOOL_SUFFIX = "__set_agent_mcp_credential"
 PLUGIN_SERVER_PREFIX = "plugin_minions_"
 
 # Importing the sibling module must not leave bytecode in the user's plugin directory.
@@ -164,6 +165,28 @@ def deny(reason: str) -> None:
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
 
 
+def stage_agent_mcp_credential(plugin_root: str, tool_name: str, tool_input: dict, cwd: object) -> int:
+    """set_agent_mcp_credential: a drop bound to the catalog server's slug and the credential name."""
+    slug = tool_input.get("slug")
+    name = tool_input.get("name")
+    if not isinstance(slug, str) or not isinstance(name, str) or not slug or not name:
+        deny("Could not resolve the credential reference: slug and name are required")
+        return 0
+    reference = tool_input.get("value")
+    if not isinstance(reference, str) or not reference.startswith(("env:", "file:", "keychain:")):
+        return 0
+    try:
+        value = resolve(reference)
+        endpoint = staging_endpoint(plugin_root, tool_name, cwd, AGENT_MCP_TOOL_SUFFIX)
+        handle = stage(endpoint, {"target": "agent_mcp", "serverSlug": slug, "kind": "env", "name": name.strip(), "value": value})
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
+        deny(f"Could not resolve {reference}: {error}")
+        return 0
+    reason = f"Minions: store {reference} as credential {name} for MCP server {slug} ({endpoint})"
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask", "permissionDecisionReason": reason, "updatedInput": {**tool_input, "value": f"staged:{handle}"}}}))
+    return 0
+
+
 def main(plugin_root: str) -> int:
     try:
         payload = json.load(sys.stdin)
@@ -173,9 +196,11 @@ def main(plugin_root: str) -> int:
     tool_input = payload.get("tool_input", payload.get("toolInput", {}))
     if not isinstance(tool_name, str) or not isinstance(tool_input, dict) or not tool_name.startswith("mcp__") or "minions" not in tool_name:
         return 0
-    suffix = next((s for s in (REPO_TOOL_SUFFIX, ORG_TOOL_SUFFIX) if tool_name.endswith(s)), None)
+    suffix = next((s for s in (REPO_TOOL_SUFFIX, ORG_TOOL_SUFFIX, AGENT_MCP_TOOL_SUFFIX) if tool_name.endswith(s)), None)
     if suffix is None:
         return 0
+    if suffix == AGENT_MCP_TOOL_SUFFIX:
+        return stage_agent_mcp_credential(plugin_root, tool_name, tool_input, payload.get("cwd"))
     org = suffix == ORG_TOOL_SUFFIX
     repo_label = tool_input.get("repoLabel")
     kind = tool_input.get("kind")

@@ -27,7 +27,7 @@ pause, or delete anything without the user's explicit decision. Reading status a
 safe; any tool that changes work requires the user's decision immediately before the action.
 This rule covers every slash command in `commands/`, including `/spec`, `/why`, `/fix-ci`,
 `/answer`, `/merge`, `/depends`, `/pause`, `/resume`, `/delete`, `/restore`, `/unblock`, and `/bugs`; call a mutating tool
-(`create_task`, `resolve_ci_fix`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `accept_recommended_answers`, `merge_task`, `merge_feature`, `set_dependency`, `set_wave_auto_merge`, `set_task_owner`, `set_task_destination_branch`, `set_task_source_branch`, `set_user_department`,
+(`create_task`, `resolve_ci_fix`, `refresh_ci`, `run_ci_fixer`, `accept_failing_check`, `stop_accepting_failing_check`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `accept_recommended_answers`, `merge_task`, `merge_feature`, `set_dependency`, `set_wave_auto_merge`, `set_task_owner`, `set_task_destination_branch`, `set_task_source_branch`, `set_user_department`,
 `pause_task`, `resume_task`, `delete_task`, `restore_task`, `delete_feature`, `restore_feature`, `switch_org`, `dismiss_tracker_sync`, or `sign_off_task`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
 
 Task ownership does not limit answering, resolving a handback, resuming, merging, or requesting changes. Whether the user can act comes only from a tool refusal, an item's `action.canAct`, or `get_task.actions[*].reason`; report that reason verbatim. Never infer a restriction from `owner.isYou`.
@@ -314,7 +314,7 @@ Call `list_blockers` and inspect the live task state. If a named ticket is not i
 | CI auto-fix stuck (hit its attempt cap) | `resolve_ci_fix` with `action: retry` — resets the counters and re-runs CI on the code host; on a feature it also sets auto-merge back on |
 | PR review needs you (`pr_response`, the PR responder hit its attempt cap) | `retry_pr_responder` — resets the attempt count; the watcher queues the responder on its next check, within about 10 minutes, while the task is in review (`inReview: false` means it resumes when the task is back in review). A paused task keeps the reset and runs once resumed. Replying on the pull request also restarts it |
 | PR feedback waiting for approval (blocker type pr_feedback) | `resolve_pr_feedback` — approve or decline each item in `prFeedback.items`, or approve all; approved items start within about 10 minutes. |
-| Provider-reported failing CI (`ci_failed`) | Call `refresh_ci` to re-read the state, then, after the user's confirmation, call `run_ci_fixer` against the stored failing run |
+| Provider-reported failing CI (`ci_failed`) | Call `refresh_ci` to re-read the state, then ask whether the user wants to accept one currently failing check with `accept_failing_check` (including a required reason) or run `run_ci_fixer` against the stored failing run |
 | Hand-back to the requester | `resolve_handback` |
 | Proposed feature split accepted as a feature | Show the proposed breakdown, ask for the user's decision, then call `list_board_fields` for every required board field and pass the answers as `customFields` to `convert_to_feature` (optionally with edited `waves` and required `autoMerge`) |
 | Proposed feature split that should remain one task | `keep_single_task` — call it when the user rejects the breakdown |
@@ -333,7 +333,7 @@ For a hand-back, read `handback.recommendedStatus` and `resumeStatuses` from `li
 A Merge Problem is not solved by repeatedly calling `merge_task`: inspect the cause, have it fixed,
 then merge. A `ci_failed` blocker means the provider's live pull-request checks are failing: report
 its `get_task.ci` check names, commit, and run URL, then call `refresh_ci` to re-read the state.
-After the user confirms, call `run_ci_fixer` to start a fixer against the stored failing run.
+After the user confirms, call `accept_failing_check` with the failing check name and a reason to record a manual acceptance, or call `run_ci_fixer` to start a fixer against the stored failing run. For a multi-repo task, pass the selected `repoLabel`; the code host's required checks still block the merge. If the user wants an accepted check to count as failing again, ask for confirmation and call `stop_accepting_failing_check`.
 It is visible even when CI auto-fix is disabled, and `resolve_ci_fix` does not apply
 unless the blocker is specifically `ci_confirm` or a CI auto-fix stuck blocker (`action: retry`). For parked states not represented by one of those actions, use the web application;
 the remaining resolution steps are web-app actions, not substitute MCP calls. Do not call an action
@@ -608,6 +608,18 @@ Startup Script exports do not reach later commands, so a framework that reads it
 
 Report missing setup facts. Change a setting only through the tools named above, and only after the
 user confirms; point the user to the web application for any setting those tools do not cover.
+
+## Agent MCP servers
+
+Pipeline agents can use MCP servers from a catalog Minions runs. Organization admins manage them; the `/minions:mcp-servers` command walks through it.
+
+- `list_agent_mcp_servers` lists what the active organization can see (view catalog or in_use) with its status on each: available, in_use, needs_credential, unavailable. `get_agent_mcp_server` shows one server's roles, repositories and credentials, each as set or not set; values are never returned.
+- `turn_on_agent_mcp_server` turns on a catalog server the organization can see, for roles the server allows and repositories. No request or approval is needed; it returns the credentials still missing.
+- `set_agent_mcp_credential` sets each preset credential, or a credential the organization adds (`sentAs` env for a command server, header for a remote one). Pass the value as an `env:NAME`, `file:PATH` or `keychain:SERVICE/ACCOUNT` reference so the plugin resolves it locally; never ask the user to paste it. Agents in the server's roles can read the value, so recommend a least-privilege token. `delete_agent_mcp_credential` clears or removes one.
+- `set_agent_mcp_server_access` changes roles (within the ones the server allows) and repositories. `stop_agent_mcp_server` with `confirm: true` stops using a server and deletes its credentials; confirm with the user first.
+- A repository can narrow a server for itself: `get_repo_agent_mcp` (View) and `set_repo_agent_mcp_change` (Edit) with mode `off`, `roles` or `inherit`.
+- Anyone can ask Minions to add a server that isn't in the catalog with `request_new_agent_mcp_server`: the server's name, where to find it, what agents would use it for, optionally which pipeline agents need it (`roles`), and the credential names it needs, never values. `list_agent_mcp_requests` follows the organization's requests (waiting, added or declined).
+- Super admins: `list_agent_mcp_server_requests` and `decline_agent_mcp_server_request` (with a reason the requester sees), `list_agent_mcp_catalog`, `set_agent_mcp_catalog_entry` (command servers pinned to an exact package version; visibility all, selected organizations or hidden decides who can turn it on; `sourceFeedbackId` adds it from a request; `turnOnForOrg` turns it on for one organization in the same save), `remove_agent_mcp_catalog_entry` (turns it off for every organization; confirm first), `list_agent_mcp_orgs`, `get_agent_mcp_org`, `set_agent_mcp_org_server`, `list_agent_mcp_repo_changes`, `set_agent_mcp_org_repo_change` and `list_agent_mcp_history`.
 
 ## Update the plugin
 
