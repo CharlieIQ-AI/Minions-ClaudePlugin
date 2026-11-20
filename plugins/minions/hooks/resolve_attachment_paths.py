@@ -200,10 +200,11 @@ def main(plugin_root: str) -> int:
     if not isinstance(tool_name, str) or not isinstance(tool_input, dict):
         return 0
     suffix = next(
-        (candidate for candidate in ("__attach_files", "__create_task", "__create_feature") if tool_name.endswith(candidate)),
+        (candidate for candidate in ("__attach_files", "__create_task", "__create_feature", "__answer_clarification",
+                                   "__add_task_note", "__add_feature_note") if tool_name.endswith(candidate)),
         None,
     )
-    if suffix is None or re.fullmatch(r"mcp__.*minions.*__(attach_files|create_task|create_feature)", tool_name) is None:
+    if suffix is None or re.fullmatch(r"mcp__.*minions.*__(attach_files|create_task|create_feature|answer_clarification|add_task_note|add_feature_note)", tool_name) is None:
         return 0
     files = tool_input.get("files")
     if not isinstance(files, list) or not any(isinstance(entry, dict) and "path" in entry for entry in files):

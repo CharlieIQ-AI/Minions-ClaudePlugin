@@ -344,7 +344,7 @@ just to discover what it would do when the user has not decided.
   the two `options` labels (`Approve auto-fix` and `Leave as-is`), then call `resolve_ci_fix` with
   `action: approve` or `dismiss` only after the user picks one. Do not look in comments or a job log
   for the failing check for this blocker.
-- `/answer` — when the user names a ticket, call `list_blockers` with `key` set to that ticket key. Show the ticket's open question(s) and options from `list_blockers` (type `clarification`, carrying `storyId` and `clarificationId`), then call `answer_clarification` only with the user's stated answer.
+- `/answer` — when the user names a ticket, call `list_blockers` with `key` set to that ticket key. Show the ticket's open question(s) and options from `list_blockers` (type `clarification`, carrying `storyId` and `clarificationId`), then call `answer_clarification` only with the user's stated answer. An option with a `fileRequest` asks for files: name the requested files, ask the user for each one's local path (or an HTTPS URL), and pass them as `files: [{ "path": "./omniengage.md" }]` with the answer; the Minions plugin uploads a local path before the call. `agentAccess` defaults to what the request asked for. When the task already has `fileRequest.maxFiles` files, ask which of `fileRequest.taskFiles` to replace and pass their ids in `replaceFileIds`.
 
 ### Review a triage verdict
 
@@ -383,7 +383,7 @@ which skips the Planner and Plan Reviewer runs. Obtain the user's explicit decis
 can use `cancelRun: true` to stop that run first.
 `reviewCycleLimit` is optional when the user wants to raise the per-ticket review-cycle cap.
 
-Use `add_task_note` when the user wants to tell the agents something without stopping or sending the task back; it needs no confirmation beyond the user having stated the note.
+Use `add_task_note` when the user wants to tell the agents something without stopping or sending the task back; it needs no confirmation beyond the user having stated the note. Files may go with it in `files` (local paths through the plugin) or `urls`; ask whether the agents need each file itself (`agentAccess`). Pass `replan: true` only when the user asks to re-plan a task that already has a plan. For a note to every task in a feature, use `add_feature_note` with the epic key: it takes the same files, `stopRuns`, and `replanKeys` naming the open tasks the user chose to re-plan; report `replanRefused` when any task could not be.
 
 ## Delete a task or feature
 
@@ -586,7 +586,10 @@ runner image, running flag and stage results. A failed stage includes its stored
 `excerpt`; use `get_readiness_check_log` with `{ repoLabel }` for the full stored log. Offer
 `run_readiness_check` when no check has run or the result is stale, and call it only after the user
 confirms; it queues the check. A `not_ready` verdict is information for setup decisions, not a
-dispatch gate, and a running or queued check must not be submitted again.
+dispatch gate, and a running or queued check must not be submitted again. When the user asks to
+stop one, call `cancel_readiness_check` with `{ repoLabel }`: a queued check is cancelled at once,
+a running one returns `cancelling` and stops itself within about a minute (`readiness_check.job`
+in `get_repo_setup` shows `cancelled` once it has), and a new check cannot be queued until then.
 8. **MINIONS.md:** when drafting repository guidance, put anything that applies to every agent
 under a `General` section, then add a distinct section per role only where the guidance differs:
 `Planner`, `Plan Reviewer`, `Builder`, `Test Author`, and `Reviewer`. `General` reaches every role,
