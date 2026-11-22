@@ -27,8 +27,8 @@ pause, or delete anything without the user's explicit decision. Reading status a
 safe; any tool that changes work requires the user's decision immediately before the action.
 This rule covers every slash command in `commands/`, including `/spec`, `/why`, `/fix-ci`,
 `/answer`, `/merge`, `/depends`, `/pause`, `/resume`, `/delete`, `/restore`, `/unblock`, and `/bugs`; call a mutating tool
-(`create_task`, `resolve_ci_fix`, `refresh_ci`, `run_ci_fixer`, `accept_failing_check`, `stop_accepting_failing_check`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `accept_recommended_answers`, `merge_task`, `merge_feature`, `set_dependency`, `set_wave_auto_merge`, `set_task_owner`, `set_task_destination_branch`, `set_task_source_branch`, `set_user_department`,
-`pause_task`, `resume_task`, `delete_task`, `restore_task`, `delete_feature`, `restore_feature`, `switch_org`, `dismiss_tracker_sync`, or `sign_off_task`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
+(`create_task`, `resolve_ci_fix`, `refresh_ci`, `run_ci_fixer`, `accept_failing_check`, `stop_accepting_failing_check`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `accept_recommended_answers`, `merge_task`, `merge_feature`, `set_dependency`, `set_wave_auto_merge`, `set_task_owner`, `set_task_destination_branch`, `set_task_source_branch`, `set_task_commit_type`, `set_task_live_recording`, `set_user_department`,
+`pause_task`, `resume_task`, `start_plan_only_build`, `set_task_plan_only`, `delete_task`, `restore_task`, `delete_feature`, `restore_feature`, `switch_org`, `dismiss_tracker_sync`, `sign_off_task`, or `set_board_import_fields`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
 
 Task ownership does not limit answering, resolving a handback, resuming, merging, or requesting changes. Whether the user can act comes only from a tool refusal, an item's `action.canAct`, or `get_task.actions[*].reason`; report that reason verbatim. Never infer a restriction from `owner.isYou`.
 
@@ -53,6 +53,7 @@ organizations may ask to work in another one:
 - If the organization is not in `list_orgs`, say so; membership is managed in the web application.
 - An org admin sees and manages every team with `list_teams`, `add_team_member`, and `remove_team_member`. `list_team_members` shows a team's members and pending invites to the same people who may manage it; `list_user_teams` shows the teams a person is on (own teams for anyone; org admins read anyone in the organization; a lead reading someone else sees only the teams the lead leads). Org admins also invite people with `invite_user`. A team lead sees only the teams they lead in `list_teams` and may add or remove members of those teams; inviting people is for org admins. Any other team operation is managed in the web application.
 - Each team member has a level on each repository and tracker board their team uses: Member (the default), View (reads the settings) or Edit (changes them). `get_repo_access` and `get_board_access` list who holds which level and need View; an org admin sets one with `set_repo_access` or `set_board_access`. Ask the user before changing a level.
+- `get_board_import_fields` reads a Jira board's ordered list of custom fields copied into task descriptions at import, plus field ids Jira most recently omitted; it requires View access. `set_board_import_fields` replaces that ordered list and writes to board settings history; it requires Edit access and is Jira-only. Show the current list, ask the user to confirm the exact fields and order, then call the setter only after that confirmation.
 - Every member may use `set_user_department` to set or clear their own descriptive department in the active organization. Organization admins may use it for another active member after confirming that person and department with the user. `department` is `engineering`, `product`, `operations`, or `c_suite`, or `null` to clear it; it never changes permissions.
 
 ## File work
@@ -82,6 +83,9 @@ source of truth:
   the creation result's `resolved` values back to them rather than assuming the request won.
 - If `auto_merge_policy` is `never`, do not offer auto-merge at all. Do not present it as a
   choice, a default, or an implied option.
+- Ask whether the user wants a task to be plan only. Pass `planOnly: true` to `create_task` or
+  `adopt_ticket` only when they choose it; a plan-only task stops at Ready for Dev after approval
+  and waits for `start_plan_only_build`.
 - Respect `auto_merge_available` and any other capability fields returned for that repo.
 - Call `list_board_fields` for the chosen repo (the primary repo of a multi-repo task) before
   filing. When it returns fields, ask the user to choose a value for every `required` field from
@@ -145,6 +149,17 @@ execution order. It refuses context repositories and any repository that is not 
 entry; it never adds, removes, or changes a repository's role. Report the returned result and any
 refusal instead of retrying with a different repository.
 
+### Change a task's repository
+
+Only when the user explicitly asks to move an unmerged task, call `change_task_repository` with the
+Minions task `key` and the chosen `repoLabel`; `buildFromBranch` and `mergeIntoBranch` are optional.
+This starts the task again in Planning on the selected repository, discarding its old plan and branch
+and closing its open pull request unmerged. Ask for confirmation before making this destructive
+change. For a feature child, omit branch overrides: its Build from and Merge into branches are locked
+to the feature branch on the destination repository. The tool refuses tasks that are merged, Done,
+removed, multi-write-repository, inaccessible, or otherwise ineligible. Relay a refusal as returned;
+do not retry with a different repository unless the user chooses one.
+
 ### Change a task's Merge into branch
 
 When the user explicitly names a new **Merge into** branch for a task, call
@@ -162,6 +177,29 @@ When the user explicitly names a new **Build from** branch for a task, call
 repository tracks (`list_repos` `branches`). It is refused once that repository has a task branch or
 pull request, from Ready to Merge onward, and for a feature child. Report the result or the
 refusal as returned.
+
+### Change a task's commit type
+
+When the user explicitly names a new commit type for a task (the `{type}` in its PR title and
+merge commit, such as `fix` instead of `feat`), call `set_task_commit_type` with the task `key`
+and `commitType`. `get_task` `commitType` shows the current type and whether a person chose it
+(source "chosen") or it follows the task type (source "task_type"). The task's open pull requests are retitled at
+once; report each one's result, including a title left alone because someone wrote it by hand. It
+is refused once the task is Done, while a merge is queued or running, on a combined wave member
+(change the lead task instead), and when none of the task's repositories uses a commit type.
+Changing the issue type in the tracker does not change a type a person chose.
+
+### Record a task's browser tests
+
+Live recording keeps a video and screenshots of a task's browser tests, run against the task's
+live environment after the Test Author finishes. It needs three switches: the organization's
+Live recordings feature (a super admin turns it on), the repository's setting
+(`set_repo_settings` with `liveRecordingEnabled`, read back from `get_repo_setup`), and the
+task's own switch. When the user asks for a new task to be recorded, pass `liveRecording: true` to
+`create_task`. For an existing task, call `set_task_live_recording` with the task `key` and
+`enabled`; `get_task` `liveRecording` shows the current value. A refusal names
+which of the other two switches is off: report it and do not turn that switch on unasked. Most
+tasks do not need recording, so never turn it on without being asked.
 
 ### Product feedback
 
@@ -324,6 +362,8 @@ Call `list_blockers` and inspect the live task state. If a named ticket is not i
 | Feature review needs another attempt | `retry_feature_review` |
 | A task should stop for now | `pause_task` |
 | A paused task should continue | `resume_task` |
+| A plan-only task is waiting after plan approval | `start_plan_only_build` — starts the build without changing its status |
+| Turn plan only on or off before plan approval | `set_task_plan_only` with `planOnly: true` or `false` |
 | One task must wait on one or several others | `set_dependency` (key = the waiting task, `dependsOnJiraKeys` = the full list of tasks it waits on; an empty array clears every blocker; `get_task` `dependencies` lists each blocker with `held`, `inMinions`, `source`) |
 | Tracker mirror out of step (`tracker_sync`) | `dismiss_tracker_sync` — hides the notice only; the fix for the underlying error is the tracker's workflow configuration |
 | Acceptance criteria only a person can confirm (`signoff`) | `sign_off_task` — show each line of `signoffAcs` and ask the user to approve or deny. `decision: "approve"` only after they say they checked every one; `decision: "deny"` needs their reason, which sends the task back to Planning as its feedback. `merge_task` is refused until they decide |
@@ -344,7 +384,7 @@ just to discover what it would do when the user has not decided.
   the two `options` labels (`Approve auto-fix` and `Leave as-is`), then call `resolve_ci_fix` with
   `action: approve` or `dismiss` only after the user picks one. Do not look in comments or a job log
   for the failing check for this blocker.
-- `/answer` — when the user names a ticket, call `list_blockers` with `key` set to that ticket key. Show the ticket's open question(s) and options from `list_blockers` (type `clarification`, carrying `storyId` and `clarificationId`), then call `answer_clarification` only with the user's stated answer. An option with a `fileRequest` asks for files: name the requested files, ask the user for each one's local path (or an HTTPS URL), and pass them as `files: [{ "path": "./omniengage.md" }]` with the answer; the Minions plugin uploads a local path before the call. `agentAccess` defaults to what the request asked for. When the task already has `fileRequest.maxFiles` files, ask which of `fileRequest.taskFiles` to replace and pass their ids in `replaceFileIds`.
+- `/answer` — when the user names a ticket, call `list_blockers` with `key` set to that ticket key. Show the ticket's open question(s) and options from `list_blockers` (type `clarification`, carrying `storyId` and `clarificationId`), then call `answer_clarification` only with the user's stated answer. An option with a `fileRequest` asks for files: name the requested files, ask the user for each one's local path (or an HTTPS URL), and pass them as `files: [{ "path": "./omniengage.md" }]` with the answer; the Minions plugin uploads a local path before the call. `agentAccess` defaults to what the request asked for. When the task already has `fileRequest.maxFiles` files, ask which of `fileRequest.taskFiles` to replace and pass their ids in `replaceFileIds`. An option whose action is "set_commit_type" ("Change the commit type") needs a type: show its `suggestedCommitType`, ask which commit type the user wants, and pass it as `commitType`; Minions then retitles the task's PRs.
 
 ### Review a triage verdict
 
@@ -456,9 +496,10 @@ steps. On `in_progress`, another start-over or undo is already running; wait and
 - Relay an unavailable action's `reason` verbatim.
 - Pass `expectedPlanVersion` from the last `get_feature` on every `add_feature_wave`.
 - Before `add_feature_wave` on a board with custom fields, call `list_board_fields` and ask the user for every required field, then pass the answers as `customFields`; read `resolved.customFields` back to report the values applied.
-- For caller-authored features, use either `planDocument` or 1–10 `waves` entries; set each entry's `verbatimSpec` independently when its text must be preserved as written. Each entry is one task, a complete story; never split one story into several entries to build it faster. Give each entry a wave of its own unless the user asks for work to run at the same time; only then give those entries the same `wave` number (at most 4 per wave; give every entry a number or none): each runs on its own branch, and the next wave starts once they are all done. `add_feature_wave` takes the same `wave` numbers.
-- When feature-sized work already has a tracker ticket, call `preview_ticket` and confirm the ticket with the user, then call `create_feature` with `existingTicket` set to it: the ticket becomes the feature's epic, and no new epic is created. For an epic, ask which of `preview_ticket`'s `children` to include and whether any has its own spec. Give each included child a wave with its `childKey`: omit `description` to use the child's own text, or pass the spec as `description` with `verbatimSpec: true`. Waves without `childKey` create new tickets. Tell the user about every key in the returned `untouchedChildren`: those children were left out of the feature.
+- For caller-authored features, use either `planDocument` or 1–24 `waves` entries; set each entry's `verbatimSpec` independently when its text must be preserved as written. Each entry is one task, a complete story; never split one story into several entries to build it faster. Give each entry a wave of its own unless the user asks for work to run at the same time; only then give those entries the same `wave` number (at most 4 per wave; give every entry a number or none): each runs on its own branch, and the next wave starts once they are all done. `add_feature_wave` and `convert_to_feature` take the same `wave` numbers. When the user's spec already lays out its waves and tasks ("## Wave 1" headings with "### Task: <title>" headings under them), pass it whole as `planDocument` with `verbatimSpec: true`: each task heading becomes a task in its wave, kept as written.
+- When feature-sized work already has a tracker ticket, call `preview_ticket` and confirm the ticket with the user, then call `create_feature` with `existingTicket` set to it: the ticket becomes the feature's epic, and no new epic is created. For an epic, ask which of `preview_ticket`'s `children` to include and whether any has its own spec. Give each included child an entry with its `childKey`, and the `wave` number the user wants it in (adopted children may share a wave like any other entry): omit `description` to use the child's own text, or pass the spec as `description` with `verbatimSpec: true`. Waves without `childKey` create new tickets. Tell the user about every key in the returned `untouchedChildren`: those children were left out of the feature.
 - For a feature across several repos, pass `create_feature` a `repos` array (1–10 entries, each with its own Merge into and Build from branches, the first writable entry the primary) instead of `repoId`, and give each wave the `repos` labels it changes; ask the user which repos each wave changes when it is not clear. A repo the user wants only read is an entry with `role: "context"` and only `buildFromBranch`: it stays read only for every wave, now and later (`get_feature` lists it in `readOnlyRepos`), so never name it in a wave's `repos`. With `existingTicket` on a GitHub issue, the issue's own repo must be the first repo the feature changes (its first writable entry). The result's `repos[]` gives each repo's `role`, and `readOnly: true` on the ones marked read only.
+- To move tasks between waves of a live feature, or reorder its waves, call `edit_feature_waves` with the moves after the user agrees to them. Only waves that have not started (every task still in Backlog) can change; read `layout.waves[].editable` in the result, and relay a refusal as given (it names the dependency or the started wave).
 - To bring a child the feature left out into it later, call `add_feature_wave` with a wave whose `childKey` is that child (from `preview_ticket` on the feature's epic key), with the same description rules as above.
 - To change automatic merging on existing work, call `set_wave_auto_merge` with a feature epic key to update the feature and every unfinished wave, or with a feature-child key to update only that wave. Pass the requested `enabled` value, obtain the user's explicit consent immediately before calling it, and report the returned `waveAutoMerge`, `changed`, and `blocked` values; finished waves and features are refused.
 - Land with `merge_feature` only after the user's explicit decision.
