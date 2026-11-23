@@ -27,7 +27,7 @@ pause, or delete anything without the user's explicit decision. Reading status a
 safe; any tool that changes work requires the user's decision immediately before the action.
 This rule covers every slash command in `commands/`, including `/spec`, `/why`, `/fix-ci`,
 `/answer`, `/merge`, `/depends`, `/pause`, `/resume`, `/delete`, `/restore`, `/unblock`, and `/bugs`; call a mutating tool
-(`create_task`, `resolve_ci_fix`, `refresh_ci`, `run_ci_fixer`, `accept_failing_check`, `stop_accepting_failing_check`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `accept_recommended_answers`, `merge_task`, `merge_feature`, `set_dependency`, `set_wave_auto_merge`, `set_task_owner`, `set_task_destination_branch`, `set_task_source_branch`, `set_task_commit_type`, `set_task_live_recording`, `set_user_department`,
+(`create_task`, `create_task_followup`, `resolve_ci_fix`, `refresh_ci`, `run_ci_fixer`, `accept_failing_check`, `stop_accepting_failing_check`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `accept_recommended_answers`, `merge_task`, `merge_feature`, `set_dependency`, `set_wave_auto_merge`, `set_task_owner`, `set_task_destination_branch`, `set_task_source_branch`, `set_task_commit_type`, `set_task_live_recording`, `set_user_department`,
 `pause_task`, `resume_task`, `start_plan_only_build`, `set_task_plan_only`, `delete_task`, `restore_task`, `delete_feature`, `restore_feature`, `switch_org`, `dismiss_tracker_sync`, `sign_off_task`, or `set_board_import_fields`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
 
 Task ownership does not limit answering, resolving a handback, resuming, merging, or requesting changes. Whether the user can act comes only from a tool refusal, an item's `action.canAct`, or `get_task.actions[*].reason`; report that reason verbatim. Never infer a restriction from `owner.isYou`.
@@ -424,6 +424,10 @@ can use `cancelRun: true` to stop that run first.
 `reviewCycleLimit` is optional when the user wants to raise the per-ticket review-cycle cap.
 
 Use `add_task_note` when the user wants to tell the agents something without stopping or sending the task back; it needs no confirmation beyond the user having stated the note. Files may go with it in `files` (local paths through the plugin) or `urls`; ask whether the agents need each file itself (`agentAccess`). Pass `replan: true` only when the user asks to re-plan a task that already has a plan. For a note to every task in a feature, use `add_feature_note` with the epic key: it takes the same files, `stopRuns`, and `replanKeys` naming the open tasks the user chose to re-plan; report `replanRefused` when any task could not be.
+
+### Create a follow-up from finished work
+
+When the user wants to continue work from a finished task, call `get_task` and check its live status. Explain that this creates a new linked task, the original remains unchanged, and the user's note is the request while the original plan, latest Reviewer verdict, and pull-request links are supplied to agents as background. Ask what still needs doing and obtain explicit confirmation before calling `create_task_followup` with the original `key` and the user's note. On success, report the returned `key`, `url`, and any `trackerWarnings`. Relay a refusal reason as returned; do not retry through `create_task` or `request_changes`.
 
 ## Delete a task or feature
 
