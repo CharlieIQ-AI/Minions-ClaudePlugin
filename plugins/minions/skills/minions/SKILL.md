@@ -27,7 +27,7 @@ pause, or delete anything without the user's explicit decision. Reading status a
 safe; any tool that changes work requires the user's decision immediately before the action.
 This rule covers every slash command in `commands/`, including `/spec`, `/why`, `/fix-ci`,
 `/answer`, `/merge`, `/depends`, `/pause`, `/resume`, `/delete`, `/restore`, `/unblock`, and `/bugs`; call a mutating tool
-(`create_task`, `create_task_followup`, `resolve_ci_fix`, `refresh_ci`, `run_ci_fixer`, `accept_failing_check`, `stop_accepting_failing_check`, `retry_pr_responder`, `resolve_pr_feedback`, `answer_clarification`, `accept_recommended_answers`, `merge_task`, `merge_feature`, `set_dependency`, `set_wave_auto_merge`, `set_task_owner`, `set_task_destination_branch`, `set_task_source_branch`, `set_task_commit_type`, `set_task_live_recording`, `set_user_department`,
+(`create_task`, `create_task_followup`, `resolve_ci_fix`, `refresh_ci`, `run_ci_fixer`, `accept_failing_check`, `stop_accepting_failing_check`, `retry_pr_responder`, `close_pr_question`, `resolve_pr_feedback`, `answer_clarification`, `accept_recommended_answers`, `merge_task`, `merge_feature`, `set_dependency`, `set_wave_auto_merge`, `set_task_owner`, `set_task_destination_branch`, `set_task_source_branch`, `set_task_commit_type`, `set_task_live_recording`, `set_user_department`,
 `pause_task`, `resume_task`, `start_plan_only_build`, `set_task_plan_only`, `delete_task`, `restore_task`, `delete_feature`, `restore_feature`, `switch_org`, `dismiss_tracker_sync`, `sign_off_task`, or `set_board_import_fields`) only when that explicit decision immediately precedes it. A deletion reason chosen by the assistant on the user's behalf does not count as consent; the user must name the reason.
 
 Task ownership does not limit answering, resolving a handback, resuming, merging, or requesting changes. Whether the user can act comes only from a tool refusal, an item's `action.canAct`, or `get_task.actions[*].reason`; report that reason verbatim. Never infer a restriction from `owner.isYou`.
@@ -351,6 +351,7 @@ Call `list_blockers` and inspect the live task state. If a named ticket is not i
 | CI-fix decision | `resolve_ci_fix` |
 | CI auto-fix stuck (hit its attempt cap) | `resolve_ci_fix` with `action: retry` — resets the counters and re-runs CI on the code host; on a feature it also sets auto-merge back on |
 | PR review needs you (`pr_response`, the PR responder hit its attempt cap) | `retry_pr_responder` — resets the attempt count; the watcher queues the responder on its next check, within about 10 minutes, while the task is in review (`inReview: false` means it resumes when the task is back in review). A paused task keeps the reset and runs once resumed. Replying on the pull request also restarts it |
+| Waiting on a PR reviewer's answer (`pr_question`) | Nothing by default: the task waits for the reviewer. Show `prQuestions`; only if the user decides not to wait, call `close_pr_question` with their `ids`, which lets the Reviewer and merge go on without the answer |
 | PR feedback waiting for approval (blocker type pr_feedback) | `resolve_pr_feedback` — approve or decline each item in `prFeedback.items`, or approve all; approved items start within about 10 minutes. |
 | Provider-reported failing CI (`ci_failed`) | Call `refresh_ci` to re-read the state, then ask whether the user wants to accept one currently failing check with `accept_failing_check` (including a required reason) or run `run_ci_fixer` against the stored failing run |
 | Hand-back to the requester | `resolve_handback` |
@@ -415,15 +416,34 @@ After three triage runs, only the two named options can be accepted.
 
 Call `get_task` and check `canRequestChanges` before changing finished work. If it is false, report
 the task's current status and call nothing. If it is true, ask where the change should go: back to
-Planning, so the spec is amended and re-reviewed (the default), or straight to the Builder with
+Planning, so the spec is amended and re-reviewed (the default), straight to the Builder with
 `route: "build"`, for a change that needs no new spec such as fixing CI or addressing PR comments,
-which skips the Planner and Plan Reviewer runs. Obtain the user's explicit decision, and then call
+which skips the Planner and Plan Reviewer runs, or straight to the Test Author with `route: "test"`,
+for a change only to test files (the Builder may not change them). A refusal of `route: "test"`
+names why; relay it. Obtain the user's explicit decision, and then call
 `request_changes`; its `status` says where the task went.
 `get_task`'s `runInFlight` says whether an agent run is in progress; when it is true, `request_changes`
 can use `cancelRun: true` to stop that run first.
 `reviewCycleLimit` is optional when the user wants to raise the per-ticket review-cycle cap.
 
 Use `add_task_note` when the user wants to tell the agents something without stopping or sending the task back; it needs no confirmation beyond the user having stated the note. Files may go with it in `files` (local paths through the plugin) or `urls`; ask whether the agents need each file itself (`agentAccess`). Pass `replan: true` only when the user asks to re-plan a task that already has a plan. For a note to every task in a feature, use `add_feature_note` with the epic key: it takes the same files, `stopRuns`, and `replanKeys` naming the open tasks the user chose to re-plan; report `replanRefused` when any task could not be.
+
+### Steer Minions from a pull request comment
+
+When the user wants Minions to answer a question about a pull request without changing anything,
+or to stay out of a comment or thread, tell them to write it on the pull request. No tool does this.
+
+- `@minions ask` in a comment: Minions answers from the code and makes no change. The reply ends
+  with "Answer only, no change made."
+- `@minions ignore`: Minions leaves that comment alone. On the first comment of a review thread it
+  leaves the whole thread alone, until a later reply mentions `@minions`.
+- Without a keyword Minions decides what the comment asks for: a question is answered, a change
+  request is handled as review feedback, a thanks or +1 gets no reply.
+
+A repository can also be set to act only on comments that mention @minions, or to ignore named
+accounts (`set_repo_settings` `prRespondMode` and `prIgnoredAuthors`, repository Edit level;
+`get_repo_setup` shows both). Ask before changing either. The repository's settings page lists the
+keywords under Automation, right after those two settings.
 
 ### Create a follow-up from finished work
 
